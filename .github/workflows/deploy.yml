@@ -9,9 +9,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  # Needed only so the diagnose step below can read, and if necessary widen,
-  # the github-pages environment's deployment branch policy.
-  administration: write
 
 # One deploy at a time; let an in-flight run finish rather than cancelling it.
 concurrency:
