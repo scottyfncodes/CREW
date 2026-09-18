@@ -170,6 +170,12 @@ export function recordGameResult(gameId: string, correct: boolean): void {
   });
 }
 
+/** Third-party key the pilot supplies. Never leaves this browser except to
+ *  the provider it belongs to. */
+export function setAeroDataBoxKey(key: string | null): void {
+  setState((s) => ({ ...s, integrations: { ...s.integrations, aeroDataBoxKey: key } }));
+}
+
 export function clearSampleData(): void {
   setState((s) => ({
     ...s,

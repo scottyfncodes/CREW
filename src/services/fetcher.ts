@@ -70,6 +70,8 @@ export interface GetOptions<T> {
   ttlMs: number;
   parse: (raw: unknown) => T;
   timeoutMs?: number;
+  /** Extra request headers, for providers that authenticate with a key. */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -94,7 +96,10 @@ export async function getJson<T>(opts: GetOptions<T>): Promise<Fetched<T>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 10_000);
   try {
-    const res = await fetch(opts.url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+    const res = await fetch(opts.url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json', ...opts.headers },
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = (await res.json()) as unknown;
     writeCache(opts.key, raw);

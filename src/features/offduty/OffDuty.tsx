@@ -77,7 +77,14 @@ export function OffDuty() {
           </Advisory>
         </Panel>
 
-        <Panel title="Logbook totals">
+        <Panel
+          title="Logbook totals"
+          action={
+            <Link className="action" to="/flights/add">
+              Add flight
+            </Link>
+          }
+        >
           <Stats>
             <Stat k="Flights" v={totals.flights} />
             <Stat k="Block" v={formatHoursDecimal(totals.blockMinutes)} sub="hours" />

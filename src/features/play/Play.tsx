@@ -66,6 +66,10 @@ export function PlayHub() {
             <div className="strong">Fleet, airports, cities, flights</div>
             <div className="tiny faint">Everything you have actually flown</div>
           </RowLink>
+          <RowLink to="/flights/add">
+            <div className="strong">Add a flight</div>
+            <div className="tiny faint">Flight number and date — CREW fills in the rest</div>
+          </RowLink>
         </Panel>
       </Screen>
     </>
@@ -199,7 +203,15 @@ export function History() {
 
   return (
     <>
-      <TopBar title="Your history" back />
+      <TopBar
+        title="Your history"
+        back
+        action={
+          <Link className="chip" to="/flights/add">
+            + Flight
+          </Link>
+        }
+      />
       <Screen>
         <Stats>
           <Stat k="Flights" v={totals.flights} />
@@ -289,7 +301,11 @@ export function History() {
         {tab === 'flights' && (
           <Panel className="flush">
             <div className="list inset">
-              {state.flights.length === 0 && <Empty glyph="▤" title="No flights logged yet" />}
+              {state.flights.length === 0 && (
+                <Empty glyph="▤" title="No flights logged yet">
+                  <Link to="/flights/add">Add one by flight number</Link>
+                </Empty>
+              )}
               {state.flights.slice(0, 80).map((f) => (
                 <div key={f.id} className="row">
                   <span className="mono small faint" style={{ width: 74, flex: 'none' }}>

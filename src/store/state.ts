@@ -16,9 +16,19 @@ export interface GameStats {
   currentStreak: number;
 }
 
+/** Optional third-party credentials the pilot supplies themselves. */
+export interface Integrations {
+  /**
+   * RapidAPI key for AeroDataBox. Lets CREW look up any flight number on any
+   * date. Stored only in this browser and sent only to AeroDataBox.
+   */
+  aeroDataBoxKey: string | null;
+}
+
 export interface CrewState {
   version: number;
   pilot: Pilot;
+  integrations: Integrations;
   trips: Trip[];
   activeTripId: string | null;
   flights: FlightRecord[];
@@ -33,9 +43,12 @@ export interface CrewState {
 
 export const STATE_VERSION = 1;
 
+export const DEFAULT_INTEGRATIONS: Integrations = { aeroDataBoxKey: null };
+
 export const DEFAULT_PILOT: Pilot = {
   name: '',
   airline: 'PSA Airlines',
+  airlineCode: 'OH',
   homeAirport: 'KDAY',
   baseAirport: 'KCLT',
   seat: 'FO',

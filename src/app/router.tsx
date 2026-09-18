@@ -3,6 +3,7 @@ import { BottomNav } from './AppShell';
 import { Home } from '../features/home/Home';
 import { Preflight } from '../features/preflight/Preflight';
 import { MakeSense } from '../features/makesense/MakeSense';
+import { AddFlight } from '../features/flights/AddFlight';
 import { Deck } from '../features/flightdeck/Deck';
 import { Calculator } from '../features/flightdeck/Calculators';
 import { AircraftCompare, AircraftList, AircraftProfile } from '../features/aircraft/AircraftProfile';
@@ -30,6 +31,7 @@ export function AppRouter() {
           <Route path="/" element={<Home />} />
           <Route path="/preflight" element={<Preflight />} />
           <Route path="/import" element={<MakeSense />} />
+          <Route path="/flights/add" element={<AddFlight />} />
 
           <Route path="/deck" element={<Deck />} />
           <Route path="/deck/calc/:tool" element={<Calculator />} />

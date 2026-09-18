@@ -7,7 +7,7 @@
 
 import { useSyncExternalStore } from 'react';
 import type { CrewState } from './state';
-import { DEFAULT_PILOT, STATE_VERSION } from './state';
+import { DEFAULT_INTEGRATIONS, DEFAULT_PILOT, STATE_VERSION } from './state';
 import { buildSampleFlights, buildSampleTails, buildSampleTrip } from './seed';
 
 const STORAGE_KEY = 'crew.state.v1';
@@ -17,6 +17,7 @@ function freshState(): CrewState {
   return {
     version: STATE_VERSION,
     pilot: DEFAULT_PILOT,
+    integrations: DEFAULT_INTEGRATIONS,
     trips: [trip],
     activeTripId: trip.id,
     flights: buildSampleFlights(),
@@ -39,6 +40,7 @@ function load(): CrewState {
       ...freshState(),
       ...parsed,
       pilot: { ...DEFAULT_PILOT, ...parsed.pilot, prefs: { ...DEFAULT_PILOT.prefs, ...parsed.pilot?.prefs }, pay: { ...DEFAULT_PILOT.pay, ...parsed.pilot?.pay } },
+      integrations: { ...DEFAULT_INTEGRATIONS, ...parsed.integrations },
     } as CrewState;
   } catch {
     return freshState();

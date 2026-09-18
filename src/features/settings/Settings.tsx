@@ -3,9 +3,11 @@ import { Screen, TopBar } from '../../app/AppShell';
 import type { CommuteMode } from '../../core/types';
 import { AIRCRAFT } from '../../data/aircraft';
 import { findAirport, searchAirports } from '../../data/airportIndex';
+import { findAirline } from '../../data/airlines';
 import { clearCache } from '../../services/fetcher';
 import {
   clearSampleData,
+  setAeroDataBoxKey,
   refreshSampleTrip,
   restoreSampleData,
   updatePay,
@@ -42,6 +44,7 @@ export function Settings() {
   const [baseQuery, setBaseQuery] = useState('');
 
   const hasSample = state.flights.some((f) => f.sample);
+  const airline = findAirline(pilot.airlineCode);
 
   return (
     <>
@@ -56,9 +59,28 @@ export function Settings() {
               onChange={(e) => updatePilot({ name: e.target.value })}
             />
           </Field>
-          <Field label="Airline">
-            <input type="text" value={pilot.airline} onChange={(e) => updatePilot({ airline: e.target.value })} />
-          </Field>
+          <div className="inline-fields">
+            <Field label="Airline">
+              <input type="text" value={pilot.airline} onChange={(e) => updatePilot({ airline: e.target.value })} />
+            </Field>
+            <Field label="Code" hint="Lets you type a bare flight number.">
+              <input
+                type="text"
+                value={pilot.airlineCode ?? ''}
+                placeholder="OH"
+                maxLength={3}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                onChange={(e) => updatePilot({ airlineCode: e.target.value.toUpperCase() || null })}
+              />
+            </Field>
+          </div>
+          {airline && (
+            <div className="small faint" style={{ marginTop: -4, marginBottom: 12 }}>
+              {airline.name} · ICAO {airline.icao} · callsign "{airline.callsign}"
+              {airline.operatesFor ? ` · flies for ${airline.operatesFor}` : ''}
+            </div>
+          )}
           <Field label="Seat">
             <select value={pilot.seat} onChange={(e) => updatePilot({ seat: e.target.value as 'FO' | 'CA' })}>
               <option value="FO">First Officer</option>
@@ -277,6 +299,37 @@ export function Settings() {
               );
             })}
           </div>
+        </Panel>
+
+        <Panel title="Flight lookup">
+          <p className="small dim" style={{ margin: '0 0 12px' }}>
+            Typing a flight number and a date fills in the rest. CREW checks your own trip history first — free,
+            instant, and usually right for flights you already fly. It also checks live ADS-B, which can supply the
+            tail number of anything airborne right now.
+          </p>
+          <p className="small dim" style={{ margin: '0 0 12px' }}>
+            To look up any flight on any date you need a schedule provider.{' '}
+            <a href="https://rapidapi.com/aedbx-aedbx/api/aerodatabox" target="_blank" rel="noreferrer noopener">
+              AeroDataBox on RapidAPI
+            </a>{' '}
+            has a free tier. Paste the key here.
+          </p>
+          <Field label="AeroDataBox key" hint="Stored only in this browser and sent only to AeroDataBox.">
+            <input
+              type="password"
+              value={state.integrations.aeroDataBoxKey ?? ''}
+              placeholder="Not set"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(e) => setAeroDataBoxKey(e.target.value.trim() || null)}
+            />
+          </Field>
+          {state.integrations.aeroDataBoxKey && (
+            <button type="button" className="btn ghost" onClick={() => setAeroDataBoxKey(null)}>
+              Remove key
+            </button>
+          )}
         </Panel>
 
         <Panel title="Data">

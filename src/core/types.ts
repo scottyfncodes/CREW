@@ -218,6 +218,8 @@ export interface Preferences {
 export interface Pilot {
   name: string;
   airline: string;
+  /** IATA or ICAO code for the airline, used to resolve bare flight numbers. */
+  airlineCode?: string | null;
   homeAirport: string; // ICAO
   baseAirport: string; // ICAO
   seat: 'FO' | 'CA';

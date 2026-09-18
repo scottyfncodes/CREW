@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Screen, TopBar } from '../../app/AppShell';
 import { parseSchedule, type ParseResult } from '../../core/parse/schedule';
 import { routeLine, timeAwayMinutes, tripFlightMinutes, tripLegCount } from '../../core/context/trip';
@@ -59,6 +59,9 @@ export function MakeSense() {
               autoCapitalize="characters"
             />
           </Field>
+          <div className="banner" style={{ marginBottom: 12 }}>
+            <span className="grow">Just one flight? <Link to="/flights/add">Add it by flight number</Link> instead.</span>
+          </div>
           <div className="btn-row">
             <button type="button" className="btn ghost" onClick={() => setText(EXAMPLE)}>
               Use an example
