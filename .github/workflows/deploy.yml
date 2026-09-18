@@ -43,47 +43,38 @@ jobs:
         with:
           path: dist
 
-      # The github-pages environment is created with a deployment branch
-      # policy pinned to whatever the default branch was when Pages was first
-      # enabled. On a repo whose first branch is not "main" that policy can
-      # exclude the branch we actually deploy from, and the deploy job is then
-      # rejected before it runs a single step. Report the state, and allow this
-      # branch if it is not already allowed.
-      - name: Check the Pages environment allows this branch
+      # The github-pages environment carries a deployment branch policy that
+      # is pinned when Pages is first enabled. If it does not list the branch
+      # we build from, the deploy job below is rejected before it runs a
+      # single step, with no log of its own explaining why. GITHUB_TOKEN
+      # cannot edit that policy, so report it here where it is readable.
+      - name: Report the Pages deployment branch policy
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
         run: |
-          echo "::group::Pages configuration"
-          gh api "repos/$REPO/pages" || echo "could not read Pages config"
-          echo "::endgroup::"
-
-          echo "::group::github-pages environment"
-          gh api "repos/$REPO/environments/github-pages" || echo "could not read environment"
-          echo "::endgroup::"
-
           policy=$(gh api "repos/$REPO/environments/github-pages" \
-            --jq '.deployment_branch_policy | if . == null then "none" else (if .custom_branch_policies then "custom" else "protected" end) end' 2>/dev/null || echo unknown)
-          echo "Deployment branch policy: $policy (deploying from $BRANCH)"
+            --jq '.deployment_branch_policy | if . == null then "none" else (if .custom_branch_policies then "custom" else "protected" end) end' \
+            2>/dev/null || echo unknown)
+          echo "Deploying from: $BRANCH"
+          echo "Deployment branch policy: $policy"
 
-          if [ "$policy" = "custom" ]; then
-            echo "Allowed branches:"
-            gh api "repos/$REPO/environments/github-pages/deployment-branch-policies" --jq '.branch_policies[].name' || true
-            if ! gh api "repos/$REPO/environments/github-pages/deployment-branch-policies" \
-                 --jq '.branch_policies[].name' 2>/dev/null | grep -qx "$BRANCH"; then
-              echo "Adding $BRANCH to the allowed list"
-              gh api --method POST "repos/$REPO/environments/github-pages/deployment-branch-policies" \
-                -f "name=$BRANCH" -f 'type=branch' || echo "could not add the branch policy"
-            fi
-          elif [ "$policy" = "protected" ]; then
-            echo "Policy allows protected branches only; switching to a custom list containing $BRANCH"
-            gh api --method PUT "repos/$REPO/environments/github-pages" \
-              -F 'deployment_branch_policy[protected_branches]=false' \
-              -F 'deployment_branch_policy[custom_branch_policies]=true' || echo "could not change the policy"
-            gh api --method POST "repos/$REPO/environments/github-pages/deployment-branch-policies" \
-              -f "name=$BRANCH" -f 'type=branch' || echo "could not add the branch policy"
-          fi
+          case "$policy" in
+            none)
+              echo "All branches may deploy." ;;
+            custom)
+              allowed=$(gh api "repos/$REPO/environments/github-pages/deployment-branch-policies" \
+                --jq '.branch_policies[].name' 2>/dev/null || true)
+              echo "Allowed branches:"; echo "$allowed"
+              if ! printf '%s\n' "$allowed" | grep -qx "$BRANCH"; then
+                echo "::warning::$BRANCH is not in the github-pages environment's allowed branches, so the deploy job will be rejected. Add it under Settings -> Environments -> github-pages -> Deployment branches, or set that to 'No restriction'."
+              fi ;;
+            protected)
+              echo "::warning::The github-pages environment allows protected branches only. Add $BRANCH under Settings -> Environments -> github-pages -> Deployment branches, or set that to 'No restriction'." ;;
+            *)
+              echo "Could not read the policy with this token." ;;
+          esac
 
   deploy:
     needs: build
