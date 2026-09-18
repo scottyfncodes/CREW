@@ -24,8 +24,12 @@ function walk(dir) {
 }
 
 const files = walk(DIST)
-  .map((f) => BASE + relative(DIST, f).split('\\').join('/'))
-  .filter((f) => !f.endsWith('sw.js'));
+  .map((f) => relative(DIST, f).split('\\').join('/'))
+  // The worker caches itself implicitly, and dotfiles (.nojekyll) are build
+  // plumbing that a host need not serve — asking for one that 404s would
+  // abort the whole install.
+  .filter((f) => f !== 'sw.js' && !f.split('/').some((part) => part.startsWith('.')))
+  .map((f) => BASE + f);
 
 // A hash of the asset list so every deploy invalidates the old cache.
 const version = readFileSync(join(DIST, 'index.html'), 'utf8').length + '-' + files.length;
@@ -35,7 +39,13 @@ const CACHE = 'crew-v${version}';
 const ASSETS = ${JSON.stringify([...files, BASE], null, 2)};
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // Cache entries individually: addAll rejects the whole install if any one
+  // request fails, which would leave the app with no offline support at all.
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.allSettled(ASSETS.map((url) => c.add(url))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
