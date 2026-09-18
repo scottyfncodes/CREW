@@ -32,22 +32,6 @@ export function initialBearingDeg(a: Position, b: Position): number {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
-/** Midpoint of the great circle between two positions. */
-export function greatCircleMidpoint(a: Position, b: Position): Position {
-  const lat1 = toRad(a.lat);
-  const lon1 = toRad(a.lon);
-  const lat2 = toRad(b.lat);
-  const dLon = toRad(b.lon - a.lon);
-  const bx = Math.cos(lat2) * Math.cos(dLon);
-  const by = Math.cos(lat2) * Math.sin(dLon);
-  const lat3 = Math.atan2(
-    Math.sin(lat1) + Math.sin(lat2),
-    Math.sqrt((Math.cos(lat1) + bx) ** 2 + by ** 2),
-  );
-  const lon3 = lon1 + Math.atan2(by, Math.cos(lat1) + bx);
-  return { lat: toDeg(lat3), lon: ((toDeg(lon3) + 540) % 360) - 180 };
-}
-
 // --- Time / speed / distance ------------------------------------------------
 
 /** Minutes to cover a distance at a groundspeed. */
@@ -82,11 +66,6 @@ export function requiredVerticalSpeedFpm(
 export function descentDistanceNm(altitudeToLoseFt: number, feetPerNm: number): number | null {
   if (feetPerNm <= 0) return null;
   return altitudeToLoseFt / feetPerNm;
-}
-
-/** The 3:1 rule of thumb: nautical miles for a given altitude in thousands. */
-export function threeToOneNm(altitudeToLoseFt: number): number {
-  return (altitudeToLoseFt / 1000) * 3;
 }
 
 /** Descent gradient in feet per nautical mile. */

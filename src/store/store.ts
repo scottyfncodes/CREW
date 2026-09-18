@@ -75,19 +75,6 @@ export function useCrew(): CrewState {
   return useSyncExternalStore(subscribe, getState, getState);
 }
 
-/** Select a slice; re-renders only when the selected value changes by identity. */
-export function useCrewSelector<T>(selector: (s: CrewState) => T): T {
-  return useSyncExternalStore(
-    subscribe,
-    () => selector(state),
-    () => selector(state),
-  );
-}
-
-export function resetToFresh(): void {
-  setState(() => freshState());
-}
-
 export function clearEverything(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);

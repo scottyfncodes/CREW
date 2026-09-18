@@ -25,10 +25,6 @@ export function guideByKey(key: string): LayoverGuide | null {
   return LAYOVER_GUIDES.find((g) => g.key === key) ?? null;
 }
 
-export function allPlaces(): Place[] {
-  return LAYOVER_GUIDES.flatMap((g) => g.places);
-}
-
 export function findPlace(id: string): { place: Place; guide: LayoverGuide } | null {
   for (const g of LAYOVER_GUIDES) {
     const p = g.places.find((x) => x.id === id);

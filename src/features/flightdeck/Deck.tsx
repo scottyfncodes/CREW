@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { Screen, TopBar } from '../../app/AppShell';
 import { useNow } from '../../app/useNow';
 import { buildContext } from '../../core/context/engine';
@@ -98,17 +97,5 @@ export function Deck() {
         </Panel>
       </Screen>
     </>
-  );
-}
-
-export function DeckHubLinks() {
-  return (
-    <div className="chips">
-      {TOOLS.slice(0, 4).map((t) => (
-        <Link key={t.slug} className="chip" to={`/deck/calc/${t.slug}`}>
-          {t.name}
-        </Link>
-      ))}
-    </div>
   );
 }

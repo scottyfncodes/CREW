@@ -6,7 +6,6 @@
  * seeded is marked as sample and can be cleared from Settings in one tap.
  */
 
-import { AIRCRAFT } from '../data/aircraft';
 import { findAirport } from '../data/airportIndex';
 import { dateKeyIn, instantFromLocal, shiftDateKey } from '../core/time/time';
 import type { DutyDay, FlightRecord, Leg, Tail, Trip } from '../core/types';
@@ -128,5 +127,3 @@ export function buildSampleFlights(now = new Date()): FlightRecord[] {
     sample: true,
   }));
 }
-
-export const SEED_AIRCRAFT_IDS = AIRCRAFT.map((a) => a.id);

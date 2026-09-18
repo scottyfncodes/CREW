@@ -114,40 +114,6 @@ export async function getJson<T>(opts: GetOptions<T>): Promise<Fetched<T>> {
   }
 }
 
-/** Same contract, for endpoints that hand back text rather than JSON. */
-export async function getText<T>(opts: Omit<GetOptions<T>, 'parse'> & { parse: (raw: string) => T }): Promise<Fetched<T>> {
-  const cached = readCache(opts.key);
-  const fresh = cached && Date.now() - cached.at < opts.ttlMs;
-  if (fresh) {
-    try {
-      return { data: opts.parse(cached!.value as string), source: opts.source, fetchedAt: cached!.at, stale: false, error: null };
-    } catch {
-      /* refetch */
-    }
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 10_000);
-  try {
-    const res = await fetch(opts.url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const raw = await res.text();
-    writeCache(opts.key, raw);
-    return { data: opts.parse(raw), source: opts.source, fetchedAt: Date.now(), stale: false, error: null };
-  } catch (err) {
-    const message = err instanceof Error ? (err.name === 'AbortError' ? 'Request timed out' : err.message) : 'Request failed';
-    if (cached) {
-      try {
-        return { data: opts.parse(cached.value as string), source: opts.source, fetchedAt: cached.at, stale: true, error: message };
-      } catch {
-        /* unusable */
-      }
-    }
-    return { data: null, source: opts.source, fetchedAt: null, stale: false, error: message };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /** "3 min ago" / "yesterday" for the provenance line under fetched data. */
 export function freshnessLabel(fetchedAt: number | null, now = Date.now()): string {
   if (!fetchedAt) return 'not loaded';

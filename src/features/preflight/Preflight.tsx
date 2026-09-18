@@ -3,7 +3,6 @@ import { Screen, TopBar } from '../../app/AppShell';
 import { useNow } from '../../app/useNow';
 import { buildContext } from '../../core/context/engine';
 import {
-  dayBlockMinutes,
   dayDutyMinutes,
   dayFlightMinutes,
   leaveHomeAt,
@@ -297,8 +296,4 @@ function TimelineItem({ state, time, title, sub }: { state: TimelineState; time:
       </div>
     </div>
   );
-}
-
-export function dayBlockLabel(day: DutyDay): string {
-  return formatDuration(dayBlockMinutes(day));
 }
