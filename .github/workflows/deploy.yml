@@ -10,9 +10,10 @@ permissions:
   pages: write
   id-token: write
 
-# One deploy at a time; let an in-flight run finish rather than cancelling it.
+# Per-ref, so a push to a development branch runs its tests without queueing
+# behind — or blocking — a deploy from the default branch.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -76,8 +77,13 @@ jobs:
               echo "Could not read the policy with this token." ;;
           esac
 
+  # Only the default branch can publish: the github-pages environment's
+  # deployment branch policy allows main alone, so attempting this from any
+  # other branch produces a rejected job with no log rather than a useful
+  # failure. Other branches still get the full build and test run above.
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
