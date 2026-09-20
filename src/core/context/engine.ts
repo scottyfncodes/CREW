@@ -7,9 +7,10 @@
  */
 
 import { findAirport } from '../../data/airportIndex';
-import type { DutyDay, Leg, Pilot, Trip } from '../types';
+import type { DutyDay, FlightRecord, Leg, Pilot, Trip } from '../types';
 import { minutesBetween, parseIso } from '../time/time';
 import { activeDayIndex, leaveHomeAt, tripLayovers, type LayoverInfo } from './trip';
+import { pendingLogbookLegs, type PendingLeg } from './schedule';
 
 export type ContextState =
   | 'no-trip'
@@ -44,6 +45,12 @@ export interface PilotContext {
   nextLayover: LayoverInfo | null;
   /** Local part of day where the pilot is. Drives greeting and card order. */
   partOfDay: 'early' | 'morning' | 'afternoon' | 'evening' | 'night';
+  /**
+   * Flown legs anywhere in this trip that have landed but are not yet in the
+   * logbook — not just "today's" legs, so a layover right after landing
+   * still surfaces the flight that just happened, not only work still ahead.
+   */
+  unloggedLegs: PendingLeg[];
 }
 
 /** 'early' means the pre-dawn show-time window, which pilots live in. */
@@ -65,7 +72,12 @@ export function partOfDayFor(now: Date, tz: string): PilotContext['partOfDay'] {
 /** How far ahead a trip counts as "coming up" rather than "later". */
 const PRE_TRIP_HORIZON_MIN = 36 * 60;
 
-export function buildContext(pilot: Pilot, trip: Trip | null, now: Date): PilotContext {
+export function buildContext(
+  pilot: Pilot,
+  trip: Trip | null,
+  now: Date,
+  flights: FlightRecord[] = [],
+): PilotContext {
   const homeTz = findAirport(pilot.homeAirport)?.tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const base: PilotContext = {
@@ -86,6 +98,7 @@ export function buildContext(pilot: Pilot, trip: Trip | null, now: Date): PilotC
     layover: null,
     nextLayover: null,
     partOfDay: partOfDayFor(now, homeTz),
+    unloggedLegs: [],
   };
 
   if (!trip || trip.days.length === 0) return base;
@@ -161,6 +174,7 @@ export function buildContext(pilot: Pilot, trip: Trip | null, now: Date): PilotC
     layover: activeLayover,
     nextLayover,
     partOfDay: partOfDayFor(now, locationTz),
+    unloggedLegs: pendingLogbookLegs([trip], flights, now),
   };
 }
 
@@ -193,19 +207,24 @@ export type HomeCardKind =
   | 'tomorrow'
   | 'sleep'
   | 'no-trip'
-  | 'make-sense'
+  | 'add-flight'
+  | 'review-logbook'
   | 'play';
 
 /**
  * Ordered list of what the home screen should show, most urgent first.
  * The UI renders these; it does not decide them.
+ *
+ * A completed, unlogged flight always outranks the rest of the day's story —
+ * closing the loop on what just happened matters more than what's next.
  */
 export function homeCards(ctx: PilotContext): HomeCardKind[] {
   const cards: HomeCardKind[] = [];
+  const hasPending = ctx.unloggedLegs.length > 0;
 
   switch (ctx.state) {
     case 'no-trip':
-      cards.push('no-trip', 'make-sense', 'weather', 'play');
+      cards.push('no-trip', 'add-flight', 'weather', 'play');
       break;
 
     case 'pre-trip':
@@ -219,17 +238,26 @@ export function homeCards(ctx: PilotContext): HomeCardKind[] {
       break;
 
     case 'on-duty':
-      if (ctx.currentLeg) cards.push('in-flight', 'airport', 'weather', 'trip');
-      else cards.push('next-leg', 'weather', 'airport', 'trip');
+      // What's happening right now always leads; catching up on a flight
+      // already logged-worthy comes right after, ahead of routine reference.
+      if (ctx.currentLeg) cards.push('in-flight');
+      else cards.push('next-leg');
+      if (hasPending) cards.push('review-logbook');
+      cards.push('airport', 'weather', 'trip');
       if (ctx.nextLayover) cards.push('layover');
       break;
 
     case 'layover':
-      cards.push('layover', 'weather', 'tomorrow', 'sleep', 'trip');
+      // The layover itself is the story of this screen; a logging reminder
+      // rides right underneath it rather than bumping it from the top.
+      cards.push('layover');
+      if (hasPending) cards.push('review-logbook');
+      cards.push('weather', 'tomorrow', 'sleep', 'trip');
       break;
 
     case 'trip-complete':
-      cards.push('trip', 'weather', 'make-sense', 'play');
+      if (hasPending) cards.push('review-logbook');
+      cards.push('trip', 'weather', 'add-flight', 'play');
       break;
   }
 

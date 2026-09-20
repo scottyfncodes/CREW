@@ -1,7 +1,9 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Screen, TopBar } from '../../app/AppShell';
 import { useNow } from '../../app/useNow';
 import { buildContext } from '../../core/context/engine';
+import { legIsComplete, legIsLogged } from '../../core/context/schedule';
 import {
   dayDutyMinutes,
   dayFlightMinutes,
@@ -17,34 +19,36 @@ import type { DutyDay, Leg, Trip } from '../../core/types';
 import { aircraftLabel } from '../../data/aircraft';
 import { findAirport } from '../../data/airportIndex';
 import { guideForAirport } from '../../data/layovers';
-import { logTripLegs } from '../../store/actions';
-import { activeTrip } from '../../store/state';
+import { deleteLeg, deleteTrip, logTripLegs, moveLeg } from '../../store/actions';
 import { useCrew } from '../../store/store';
 import { Advisory, Empty, Panel, Stat, Stats } from '../../ui/primitives';
 import { useForecast } from '../weather/useWeather';
 import { WeatherLine } from '../weather/WeatherStrip';
 
-export function Preflight() {
+export function TripDetail() {
+  const { tripId = '' } = useParams();
+  const navigate = useNavigate();
   const state = useCrew();
   const now = useNow();
-  const trip = activeTrip(state);
+  const trip = state.trips.find((t) => t.id === tripId) ?? null;
 
   if (!trip) {
     return (
       <>
-        <TopBar title="Preflight" />
+        <TopBar title="Trip" back />
         <Screen>
-          <Empty glyph="◇" title="No trip loaded">
-            <Link to="/import">Paste a pairing</Link> and CREW will build the trip.
+          <Empty glyph="◇" title="Trip not found">
+            <Link to="/schedule">Back to Schedule</Link>
           </Empty>
         </Screen>
       </>
     );
   }
 
-  const ctx = buildContext(state.pilot, trip, now);
+  const ctx = buildContext(state.pilot, trip, now, state.flights);
   const layovers = tripLayovers(trip);
   const tafb = timeAwayMinutes(trip);
+  const isCurrent = ctx.trip?.id === trip.id;
 
   return (
     <>
@@ -52,8 +56,8 @@ export function Preflight() {
         title={trip.number ? `Trip ${trip.number}` : 'Trip'}
         back
         action={
-          <Link className="chip" to="/import">
-            New
+          <Link className="chip" to="/schedule/add">
+            + Flight
           </Link>
         }
       />
@@ -83,8 +87,9 @@ export function Preflight() {
             index={i}
             trip={trip}
             now={now}
-            isToday={i === ctx.dayIndex}
+            isToday={isCurrent && i === ctx.dayIndex}
             commuteApplies={i === 0}
+            flights={state.flights}
           />
         ))}
 
@@ -111,18 +116,33 @@ export function Preflight() {
 
         <Panel title="Logbook">
           <p className="small dim" style={{ margin: '0 0 10px' }}>
-            Pull every flown leg of this trip into your personal history. Deadheads are skipped and duplicates are not
-            re-added.
+            Pull every flown leg of this trip into your personal history in one go. Deadheads are skipped and a leg
+            already logged is never re-added.
           </p>
           <button
             type="button"
             className="btn"
             onClick={() => {
               const n = logTripLegs(trip, state.pilot.seat);
-              alert(n === 0 ? 'Nothing new to log — these legs are already in your history.' : `Logged ${n} leg${n === 1 ? '' : 's'}.`);
+              alert(n === 0 ? 'Nothing new to log — these legs are already in your logbook.' : `Logged ${n} leg${n === 1 ? '' : 's'}.`);
             }}
           >
-            Log this trip
+            Log this whole trip
+          </button>
+        </Panel>
+
+        <Panel title="Remove this trip">
+          <button
+            type="button"
+            className="btn danger"
+            onClick={() => {
+              if (confirm('Remove this trip from your schedule? Anything already logged stays in your logbook.')) {
+                deleteTrip(trip.id);
+                navigate('/schedule');
+              }
+            }}
+          >
+            Delete trip
           </button>
         </Panel>
 
@@ -148,6 +168,7 @@ function DayBlock({
   now,
   isToday,
   commuteApplies,
+  flights,
 }: {
   day: DutyDay;
   index: number;
@@ -155,6 +176,7 @@ function DayBlock({
   now: Date;
   isToday: boolean;
   commuteApplies: boolean;
+  flights: ReturnType<typeof useCrew>['flights'];
 }) {
   const state = useCrew();
   const firstAp = findAirport(day.legs[0]?.from ?? state.pilot.baseAirport);
@@ -206,8 +228,17 @@ function DayBlock({
             sub={`${firstAp?.iata ?? ''} · ${relative(day.reportAt, now)}`}
           />
         )}
-        {day.legs.map((leg) => (
-          <LegItem key={leg.id} leg={leg} now={now} />
+        {day.legs.map((leg, li) => (
+          <LegItem
+            key={leg.id}
+            leg={leg}
+            now={now}
+            tripId={trip.id}
+            dayId={day.id}
+            isFirst={li === 0}
+            isLast={li === day.legs.length - 1}
+            logged={legIsLogged(leg.id, flights)}
+          />
         ))}
         {day.releaseAt && (
           <TimelineItem
@@ -245,16 +276,39 @@ function DayBlock({
   );
 }
 
-function LegItem({ leg, now }: { leg: Leg; now: Date }) {
+function LegItem({
+  leg,
+  now,
+  tripId,
+  dayId,
+  isFirst,
+  isLast,
+  logged,
+}: {
+  leg: Leg;
+  now: Date;
+  tripId: string;
+  dayId: string;
+  isFirst: boolean;
+  isLast: boolean;
+  logged: boolean;
+}) {
+  const [open, setOpen] = useState(false);
   const from = findAirport(leg.from);
   const to = findAirport(leg.to);
   const dep = leg.depart ? new Date(leg.depart) : null;
   const arr = leg.arrive ? new Date(leg.arrive) : null;
   const state: TimelineState = !dep || !arr ? 'future' : now >= arr ? 'done' : now >= dep ? 'now' : 'future';
+  const complete = legIsComplete(leg, now);
 
   return (
     <div className={`tl-item ${state}`}>
-      <div className="row" style={{ borderBottom: 0, padding: 0, gap: 10 }}>
+      <button
+        type="button"
+        className="row"
+        style={{ borderBottom: 0, padding: 0, gap: 10, textAlign: 'left', background: 'none' }}
+        onClick={() => setOpen((v) => !v)}
+      >
         <span className="mono strong" style={{ width: 52, flex: 'none' }}>
           {timeIn(leg.depart, from?.tz ?? 'UTC')}
         </span>
@@ -264,6 +318,10 @@ function LegItem({ leg, now }: { leg: Leg; now: Date }) {
               {from?.iata ?? leg.from} → {to?.iata ?? leg.to}
             </span>
             {leg.kind === 'deadhead' && <span className="chip caution" style={{ marginLeft: 8, padding: '2px 7px' }}>DH</span>}
+            {complete && logged && <span className="chip go" style={{ marginLeft: 8, padding: '2px 7px' }}>Logged</span>}
+            {complete && !logged && leg.kind === 'flight' && (
+              <span className="chip caution" style={{ marginLeft: 8, padding: '2px 7px' }}>Ready to log</span>
+            )}
           </div>
           <div className="tiny faint mono">
             {leg.flightNumber ? `#${leg.flightNumber} · ` : ''}
@@ -275,7 +333,41 @@ function LegItem({ leg, now }: { leg: Leg; now: Date }) {
         <span className="mono faint" style={{ flex: 'none' }}>
           {timeIn(leg.arrive, to?.tz ?? 'UTC')}
         </span>
-      </div>
+      </button>
+
+      {open && (
+        <div style={{ padding: '8px 0 4px 62px' }}>
+          <div className="btn-row">
+            {complete && !logged && leg.kind === 'flight' && (
+              <Link className="btn primary inline" to={`/logbook/review/${tripId}/${dayId}/${leg.id}`}>
+                Review for logbook
+              </Link>
+            )}
+            <Link className="btn ghost inline" to={`/schedule/leg/${tripId}/${dayId}/${leg.id}`}>
+              Edit
+            </Link>
+            {!isFirst && (
+              <button type="button" className="btn ghost inline" onClick={() => moveLeg(tripId, dayId, leg.id, 'up')}>
+                ↑
+              </button>
+            )}
+            {!isLast && (
+              <button type="button" className="btn ghost inline" onClick={() => moveLeg(tripId, dayId, leg.id, 'down')}>
+                ↓
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn danger inline"
+              onClick={() => {
+                if (confirm('Remove this flight from the schedule?')) deleteLeg(tripId, dayId, leg.id);
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

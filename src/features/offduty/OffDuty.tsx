@@ -1,16 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Screen, TopBar } from '../../app/AppShell';
 import { useNow } from '../../app/useNow';
 import { formatMoney, tripEarnings } from '../../core/context/pay';
-import { logbookTotals, monthlyBlock } from '../../core/context/stats';
 import { timeAwayMinutes, tripFlightMinutes } from '../../core/context/trip';
 import { formatDuration, formatHoursDecimal } from '../../core/time/time';
 import type { ExpenseCategory } from '../../core/types';
 import { addExpense, deleteExpense } from '../../store/actions';
-import { activeTrip } from '../../store/state';
+import { primaryTrip } from '../../core/context/schedule';
 import { useCrew } from '../../store/store';
-import { Advisory, Empty, Field, Panel, RowLink, Stat, Stats } from '../../ui/primitives';
+import { Advisory, Empty, Field, Panel, Stat, Stats } from '../../ui/primitives';
 
 const CATEGORIES: { id: ExpenseCategory; label: string }[] = [
   { id: 'food', label: 'Food' },
@@ -23,10 +22,7 @@ const CATEGORIES: { id: ExpenseCategory; label: string }[] = [
 export function OffDuty() {
   const state = useCrew();
   const now = useNow();
-  const trip = activeTrip(state);
-
-  const totals = useMemo(() => logbookTotals(state.flights, state.tails), [state.flights, state.tails]);
-  const months = useMemo(() => monthlyBlock(state.flights), [state.flights]);
+  const trip = primaryTrip(state.trips, now);
   const earnings = trip ? tripEarnings(trip, state.pilot.pay) : null;
 
   const thisMonth = now.toISOString().slice(0, 7);
@@ -35,7 +31,7 @@ export function OffDuty() {
 
   return (
     <>
-      <TopBar title="Off Duty" action={<Link className="chip" to="/settings">⚙</Link>} />
+      <TopBar title="Pay & Expenses" back action={<Link className="chip" to="/settings">⚙</Link>} />
       <Screen>
         <Panel title="This trip">
           {trip && earnings ? (
@@ -77,59 +73,9 @@ export function OffDuty() {
           </Advisory>
         </Panel>
 
-        <Panel
-          title="Logbook totals"
-          action={
-            <Link className="action" to="/flights/add">
-              Add flight
-            </Link>
-          }
-        >
-          <Stats>
-            <Stat k="Flights" v={totals.flights} />
-            <Stat k="Block" v={formatHoursDecimal(totals.blockMinutes)} sub="hours" />
-            <Stat k="Distance" v={totals.distanceNm.toLocaleString()} sub="nm" />
-            <Stat k="Airports" v={totals.airports} />
-            <Stat k="Airframes" v={totals.tails} />
-            <Stat k="Types" v={totals.types} />
-          </Stats>
-          {totals.longestLeg && (
-            <div className="small dim" style={{ marginTop: 10 }}>
-              Longest leg flown:{' '}
-              <span className="mono strong">
-                {totals.longestLeg.from.replace(/^K/, '')} → {totals.longestLeg.to.replace(/^K/, '')}
-              </span>{' '}
-              <span className="faint">{Math.round(totals.longestLeg.nm)} nm</span>
-            </div>
-          )}
-          <div className="divider" />
-          <RowLink to="/play/history">
-            <div className="strong">Your flying history</div>
-            <div className="tiny faint">Fleet, airports, cities, flights</div>
-          </RowLink>
-        </Panel>
-
-        {months.length > 0 && (
-          <Panel title="By month">
-            {months.slice(0, 6).map((m) => {
-              const max = Math.max(...months.map((x) => x.minutes));
-              return (
-                <div key={m.month} style={{ padding: '8px 0' }}>
-                  <div className="row" style={{ borderBottom: 0, padding: 0 }}>
-                    <span className="mono small" style={{ width: 66, flex: 'none' }}>
-                      {m.month}
-                    </span>
-                    <span className="grow small faint">{m.flights} legs</span>
-                    <span className="mono strong">{formatHoursDecimal(m.minutes)} h</span>
-                  </div>
-                  <div className="bar" style={{ marginTop: 6 }}>
-                    <span style={{ width: `${max > 0 ? (m.minutes / max) * 100 : 0}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </Panel>
-        )}
+        <div className="tiny faint" style={{ textAlign: 'center', margin: '0 0 12px' }}>
+          Flight hours, distance and monthly totals live in <Link to="/logbook">Logbook</Link>.
+        </div>
 
         <ExpenseBlock monthSpend={monthSpend} thisMonth={thisMonth} />
       </Screen>

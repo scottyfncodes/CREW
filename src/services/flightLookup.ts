@@ -24,7 +24,7 @@ import { findAirline, parseFlightNumber, toCallsign, toIataFlightNumber, type Ai
 import { findAirport } from '../data/airportIndex';
 import { AIRCRAFT } from '../data/aircraft';
 import { dateKeyIn, instantFromLocal, minutesBetween, shiftDateKey } from '../core/time/time';
-import type { Iso, Source, Trip } from '../core/types';
+import type { Iso, LegStatus, Source, Trip } from '../core/types';
 import type { CrewState } from '../store/state';
 import { getJson, type Fetched } from './fetcher';
 
@@ -38,6 +38,10 @@ export interface FlightLookupResult {
   to: string | null; // ICAO
   depart: Iso | null;
   arrive: Iso | null;
+  /** Only ever set when a source actually reported it — never derived from the clock. */
+  actualDepart: Iso | null;
+  actualArrive: Iso | null;
+  status: LegStatus | null;
   blockMinutes: number | null;
   aircraftId: string | null;
   tail: string | null;
@@ -48,6 +52,10 @@ export interface FlightLookupResult {
   notes: string[];
 }
 
+const MERGEABLE_FIELDS = [
+  'from', 'to', 'depart', 'arrive', 'actualDepart', 'actualArrive', 'status', 'blockMinutes', 'aircraftId', 'tail',
+] as const;
+
 function emptyResult(flightNumber: string, airline: Airline | null): FlightLookupResult {
   return {
     flightNumber,
@@ -56,6 +64,9 @@ function emptyResult(flightNumber: string, airline: Airline | null): FlightLooku
     to: null,
     depart: null,
     arrive: null,
+    actualDepart: null,
+    actualArrive: null,
+    status: null,
     blockMinutes: null,
     aircraftId: null,
     tail: null,
@@ -67,8 +78,7 @@ function emptyResult(flightNumber: string, airline: Airline | null): FlightLooku
 
 /** Copy set fields from `patch` into `base`, recording where each came from. */
 function merge(base: FlightLookupResult, patch: Partial<FlightLookupResult>, from: FieldOrigin): void {
-  const fields = ['from', 'to', 'depart', 'arrive', 'blockMinutes', 'aircraftId', 'tail'] as const;
-  for (const f of fields) {
+  for (const f of MERGEABLE_FIELDS) {
     const v = patch[f];
     if (v === null || v === undefined) continue;
     // A later provider only overwrites an earlier one if it outranks it.
@@ -194,7 +204,9 @@ export function aircraftIdFromIcaoType(code: string | null | undefined): string 
  * Ask a public ADS-B feed whether this callsign is in the air right now.
  * Only ever fills in the tail and type — it knows nothing about schedules.
  */
-export async function lookupLive(callsign: string): Promise<Fetched<{ tail: string | null; aircraftId: string | null; typeCode: string | null }>> {
+export async function lookupLive(
+  callsign: string,
+): Promise<Fetched<{ tail: string | null; aircraftId: string | null; typeCode: string | null; status: LegStatus }>> {
   return getJson({
     key: `flight.live.${callsign}`,
     url: `https://api.adsb.lol/v2/callsign/${encodeURIComponent(callsign)}`,
@@ -208,6 +220,9 @@ export async function lookupLive(callsign: string): Promise<Fetched<{ tail: stri
         tail: ac.r ? ac.r.toUpperCase() : null,
         aircraftId: aircraftIdFromIcaoType(ac.t),
         typeCode: ac.t ?? null,
+        // Appearing in a live ADS-B feed at all means it is in the air —
+        // this is observed, not inferred from a clock.
+        status: 'enroute' as const,
       };
     },
   });
@@ -224,10 +239,38 @@ const AERODATABOX: Source = {
 };
 
 interface AdbFlight {
-  departure?: { airport?: { icao?: string; iata?: string }; scheduledTime?: { utc?: string; local?: string } };
-  arrival?: { airport?: { icao?: string; iata?: string }; scheduledTime?: { utc?: string; local?: string } };
+  departure?: {
+    airport?: { icao?: string; iata?: string };
+    scheduledTime?: { utc?: string; local?: string };
+    actualTime?: { utc?: string; local?: string };
+    revisedTime?: { utc?: string; local?: string };
+  };
+  arrival?: {
+    airport?: { icao?: string; iata?: string };
+    scheduledTime?: { utc?: string; local?: string };
+    actualTime?: { utc?: string; local?: string };
+    revisedTime?: { utc?: string; local?: string };
+  };
   aircraft?: { model?: string; reg?: string };
   number?: string;
+  status?: string;
+}
+
+/**
+ * AeroDataBox's own status vocabulary, mapped onto CREW's much smaller one.
+ * Anything not recognised comes back null rather than a guess — an
+ * unfamiliar status string is not evidence of any particular state.
+ */
+export function statusFromAdb(raw: string | undefined): LegStatus | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase();
+  if (['canceled', 'cancelled'].includes(s)) return 'cancelled';
+  if (['landed', 'arrived'].includes(s)) return 'landed';
+  if (['departed', 'enroute', 'en route', 'approaching', 'diverted'].includes(s)) return 'enroute';
+  if (['expected', 'scheduled', 'checkin', 'check-in', 'boarding', 'gateclosed', 'gate closed', 'delayed', 'unknown'].includes(s)) {
+    return 'scheduled';
+  }
+  return null;
 }
 
 /** Parse AeroDataBox's UTC timestamps, which look like "2026-09-18 10:00Z". */
@@ -276,11 +319,16 @@ export async function lookupSchedule(
       const to = findAirport(f.arrival?.airport?.icao ?? f.arrival?.airport?.iata);
       const depart = parseAdbTime(f.departure?.scheduledTime?.utc);
       const arrive = parseAdbTime(f.arrival?.scheduledTime?.utc);
+      const actualDepart = parseAdbTime(f.departure?.actualTime?.utc ?? f.departure?.revisedTime?.utc);
+      const actualArrive = parseAdbTime(f.arrival?.actualTime?.utc ?? f.arrival?.revisedTime?.utc);
       return {
         from: from?.icao ?? f.departure?.airport?.icao ?? null,
         to: to?.icao ?? f.arrival?.airport?.icao ?? null,
         depart,
         arrive,
+        actualDepart,
+        actualArrive,
+        status: statusFromAdb(f.status),
         blockMinutes: depart && arrive ? minutesBetween(depart, arrive) : null,
         aircraftId: aircraftIdFromModel(f.aircraft?.model),
         tail: f.aircraft?.reg ? f.aircraft.reg.toUpperCase() : null,

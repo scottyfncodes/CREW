@@ -3,7 +3,7 @@ import { useNow } from '../../app/useNow';
 import { buildContext } from '../../core/context/engine';
 import { findAirport } from '../../data/airportIndex';
 import { aircraftLabel } from '../../data/aircraft';
-import { activeTrip } from '../../store/state';
+import { primaryTrip } from '../../core/context/schedule';
 import { useCrew } from '../../store/store';
 import { Advisory, Panel, RowLink } from '../../ui/primitives';
 
@@ -21,7 +21,7 @@ export const TOOLS = [
 export function Deck() {
   const state = useCrew();
   const now = useNow();
-  const ctx = buildContext(state.pilot, activeTrip(state), now);
+  const ctx = buildContext(state.pilot, primaryTrip(state.trips, now), now);
   const todayAircraft = ctx.day?.legs.find((l) => l.aircraftId)?.aircraftId ?? state.pilot.fleet[0];
   const todayAirports = [...new Set((ctx.day?.legs ?? []).flatMap((l) => [l.from, l.to]))]
     .map((c) => findAirport(c))

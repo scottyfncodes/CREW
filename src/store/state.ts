@@ -30,7 +30,6 @@ export interface CrewState {
   pilot: Pilot;
   integrations: Integrations;
   trips: Trip[];
-  activeTripId: string | null;
   flights: FlightRecord[];
   tails: Tail[];
   expenses: Expense[];
@@ -70,7 +69,3 @@ export const DEFAULT_PILOT: Pilot = {
   },
 };
 
-export function activeTrip(state: CrewState): Trip | null {
-  if (!state.activeTripId) return state.trips[0] ?? null;
-  return state.trips.find((t) => t.id === state.activeTripId) ?? state.trips[0] ?? null;
-}

@@ -3,13 +3,13 @@ import { Screen, TopBar } from '../../app/AppShell';
 import { useNow } from '../../app/useNow';
 import { buildContext, greeting, homeCards, type HomeCardKind, type PilotContext } from '../../core/context/engine';
 import { layoverBudget, buildLayoverPlan } from '../../core/context/layover';
+import { primaryTrip } from '../../core/context/schedule';
 import { dayFlightMinutes, routeLine } from '../../core/context/trip';
 import { formatDuration, hourIn, minutesBetween, relative, timeIn, zoneAbbr } from '../../core/time/time';
 import { aircraftLabel } from '../../data/aircraft';
 import { findAirport } from '../../data/airportIndex';
 import { guideForAirport } from '../../data/layovers';
 import { useCrew } from '../../store/store';
-import { activeTrip } from '../../store/state';
 import { dismissSampleBanner } from '../../store/actions';
 import { Panel, Stat, Stats } from '../../ui/primitives';
 import { useForecast } from '../weather/useWeather';
@@ -19,8 +19,8 @@ import { nextSignificantWindow } from '../../services/weather';
 export function Home() {
   const state = useCrew();
   const now = useNow();
-  const trip = activeTrip(state);
-  const ctx = buildContext(state.pilot, trip, now);
+  const trip = primaryTrip(state.trips, now);
+  const ctx = buildContext(state.pilot, trip, now, state.flights);
   const cards = homeCards(ctx);
 
   const focusIcao = ctx.locationIcao ?? state.pilot.homeAirport;
@@ -43,8 +43,8 @@ export function Home() {
         {hasSample && !state.sampleDismissed && (
           <div className="banner">
             <span className="grow">
-              Showing a sample pairing and logbook so nothing is empty. Import your own with{' '}
-              <Link to="/import">Make Sense Of This</Link>.
+              Showing a sample pairing and logbook so nothing is empty. Add your own from{' '}
+              <Link to="/schedule">Schedule</Link>.
             </span>
             <button type="button" onClick={dismissSampleBanner}>
               Got it
@@ -147,9 +147,11 @@ function HomeCard({
             </div>
           )}
           <div className="divider" />
-          <Link className="btn" to="/preflight">
-            Full preflight
-          </Link>
+          {ctx.trip && (
+            <Link className="btn" to={`/schedule/trip/${ctx.trip.id}`}>
+              Full trip
+            </Link>
+          )}
         </Panel>
       );
     }
@@ -300,7 +302,7 @@ function HomeCard({
         <Panel
           title={ctx.trip.number ? `Trip ${ctx.trip.number}` : 'Trip'}
           action={
-            <Link className="action" to="/preflight">
+            <Link className="action" to={`/schedule/trip/${ctx.trip.id}`}>
               Open
             </Link>
           }
@@ -403,24 +405,46 @@ function HomeCard({
 
     case 'no-trip':
       return (
-        <Panel title="No trip loaded">
+        <Panel title="No scheduled flight">
           <p className="small dim" style={{ margin: '0 0 12px' }}>
-            Paste a pairing and CREW will turn it into a readable trip — report times, legs, layovers, the lot.
+            Add a flight by number and date — CREW looks up the route, times and aircraft for you.
           </p>
-          <Link className="btn primary" to="/import">
-            Make sense of this
+          <Link className="btn primary" to="/schedule/add">
+            + Add flight
           </Link>
         </Panel>
       );
 
-    case 'make-sense':
+    case 'add-flight':
       return (
-        <Panel title="New trip">
-          <Link className="btn" to="/import">
-            Paste a pairing
+        <Panel title={ctx.state === 'trip-complete' ? 'Next flight' : 'New flight'}>
+          <Link className="btn" to="/schedule/add">
+            + Add flight
           </Link>
         </Panel>
       );
+
+    case 'review-logbook': {
+      const pending = ctx.unloggedLegs[0];
+      const from = findAirport(pending?.leg.from);
+      const to = findAirport(pending?.leg.to);
+      return (
+        <Panel title="Ready to log" className="accent">
+          <div className="route">
+            {from?.iata ?? pending?.leg.from} → {to?.iata ?? pending?.leg.to}
+          </div>
+          <div className="small dim" style={{ marginTop: 4 }}>
+            Completed ✓ {ctx.unloggedLegs.length > 1 ? `· ${ctx.unloggedLegs.length} flights ready` : ''}
+          </div>
+          <div className="divider" />
+          {pending && (
+            <Link className="btn primary" to={`/logbook/review/${pending.trip.id}/${pending.day.id}/${pending.leg.id}`}>
+              Review for logbook
+            </Link>
+          )}
+        </Panel>
+      );
+    }
 
     case 'play': {
       const stats = state.games['guess-aircraft'];

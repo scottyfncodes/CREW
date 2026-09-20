@@ -132,6 +132,9 @@ export interface Tail {
 
 export type LegKind = 'flight' | 'deadhead';
 
+/** Operational status, only ever set from a source that actually reported it. */
+export type LegStatus = 'scheduled' | 'enroute' | 'landed' | 'cancelled';
+
 export interface Leg {
   id: string;
   kind: LegKind;
@@ -141,6 +144,11 @@ export interface Leg {
   /** Scheduled departure/arrival. Null when the source did not give one. */
   depart: Iso | null;
   arrive: Iso | null;
+  /** Actual departure/arrival, only when a source reported one. */
+  actualDepart?: Iso | null;
+  actualArrive?: Iso | null;
+  /** Never inferred from times alone — only set when a source states it. */
+  status?: LegStatus | null;
   aircraftId?: string | null;
   tail?: string | null;
   /** Block time in minutes when stated by the source; otherwise derived. */
@@ -244,6 +252,13 @@ export interface FlightRecord {
   note?: string;
   /** Seeded example data, shown with a badge and clearable in one tap. */
   sample?: boolean;
+  /**
+   * The schedule Leg this record was reviewed and confirmed from, if any.
+   * Lets CREW know a scheduled flight has already been logged so "review for
+   * logbook" never offers the same flight twice, and lets a logbook entry
+   * point back at the trip it came from.
+   */
+  sourceLegId?: string | null;
 }
 
 export type ExpenseCategory = 'food' | 'transport' | 'hotel' | 'supplies' | 'other';

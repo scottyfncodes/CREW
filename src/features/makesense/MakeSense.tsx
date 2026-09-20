@@ -43,7 +43,7 @@ export function MakeSense() {
 
   return (
     <>
-      <TopBar title="Make sense of this" back />
+      <TopBar title="Paste a pairing" back />
       <Screen>
         <Panel>
           <p className="small dim" style={{ margin: '0 0 12px' }}>
@@ -60,7 +60,7 @@ export function MakeSense() {
             />
           </Field>
           <div className="banner" style={{ marginBottom: 12 }}>
-            <span className="grow">Just one flight? <Link to="/flights/add">Add it by flight number</Link> instead.</span>
+            <span className="grow">Just one flight? <Link to="/schedule/add">Add it by flight number</Link> instead.</span>
           </div>
           <div className="btn-row">
             <button type="button" className="btn ghost" onClick={() => setText(EXAMPLE)}>
@@ -78,7 +78,7 @@ export function MakeSense() {
           </Field>
         </Panel>
 
-        {result && <ParseOutput result={result} onAccept={(t) => { addTrip(t); navigate('/preflight'); }} />}
+        {result && <ParseOutput result={result} onAccept={(t) => { addTrip(t); navigate(`/schedule/trip/${t.id}`); }} />}
 
         <Advisory>
           CREW only restates what your text contained. It does not fetch, verify or complete your schedule — your

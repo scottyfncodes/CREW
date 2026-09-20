@@ -125,7 +125,7 @@ describe('context engine', () => {
   it('knows there is no trip', () => {
     const c = buildContext(pilot, null, new Date('2026-09-18T12:00:00Z'));
     expect(c.state).toBe('no-trip');
-    expect(homeCards(c)).toContain('make-sense');
+    expect(homeCards(c)).toContain('add-flight');
   });
 
   it('is pre-trip well before report', () => {
@@ -169,6 +169,17 @@ describe('context engine', () => {
     expect(homeCards(c)[0]).toBe('layover');
   });
 
+  it('surfaces day-one legs still unlogged during the day-one/day-two layover, not just "today"', () => {
+    // Regression: unloggedLegs was once scoped to ctx.day, which during this
+    // layover resolves to day two (not yet flown) — silently hiding the
+    // three day-one legs that had, in fact, just landed.
+    const c = ctx('2026-09-18T22:00:00Z');
+    expect(c.state).toBe('layover');
+    expect(c.day).toBe(trip.days[1]);
+    expect(c.unloggedLegs.map((p) => p.leg.flightNumber)).toEqual(['5142', '5388', '5401']);
+    expect(homeCards(c)).toContain('review-logbook');
+  });
+
   it('marks the trip complete after the last release', () => {
     const c = ctx('2026-09-19T20:00:00Z');
     expect(c.state).toBe('trip-complete');
@@ -177,7 +188,8 @@ describe('context engine', () => {
   it('never returns a card list the UI cannot render', () => {
     const known = new Set([
       'leave-home', 'report', 'next-leg', 'in-flight', 'layover', 'weather',
-      'trip', 'aircraft', 'airport', 'tomorrow', 'sleep', 'no-trip', 'make-sense', 'play',
+      'trip', 'aircraft', 'airport', 'tomorrow', 'sleep', 'no-trip', 'add-flight',
+      'review-logbook', 'play',
     ]);
     for (const iso of [
       '2026-09-17T20:00:00Z', '2026-09-18T07:30:00Z', '2026-09-18T13:00:00Z',

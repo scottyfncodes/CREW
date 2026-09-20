@@ -19,7 +19,6 @@ function freshState(): CrewState {
     pilot: DEFAULT_PILOT,
     integrations: DEFAULT_INTEGRATIONS,
     trips: [trip],
-    activeTripId: trip.id,
     flights: buildSampleFlights(),
     tails: buildSampleTails(),
     expenses: [],
@@ -83,5 +82,5 @@ export function clearEverything(): void {
   } catch {
     /* ignore */
   }
-  setState(() => ({ ...freshState(), flights: [], tails: [], trips: [], activeTripId: null, sampleDismissed: true }));
+  setState(() => ({ ...freshState(), flights: [], tails: [], trips: [], sampleDismissed: true }));
 }

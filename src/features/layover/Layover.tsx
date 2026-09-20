@@ -10,7 +10,8 @@ import { findAirport } from '../../data/airportIndex';
 import { LAYOVER_GUIDES, fallbackLinks, guideByKey, guideForAirport } from '../../data/layovers';
 import { nextSignificantWindow } from '../../services/weather';
 import { setPlaceFeeling } from '../../store/actions';
-import { activeTrip, type PlaceFeeling } from '../../store/state';
+import type { PlaceFeeling } from '../../store/state';
+import { primaryTrip } from '../../core/context/schedule';
 import { useCrew } from '../../store/store';
 import { Advisory, Empty, Panel, SourceLinks, Stat, Stats } from '../../ui/primitives';
 import { useForecast } from '../weather/useWeather';
@@ -43,7 +44,7 @@ const MICHELIN_LABEL: Record<NonNullable<Place['michelin']>['status'], string> =
 export function LayoverHub() {
   const state = useCrew();
   const now = useNow();
-  const ctx = buildContext(state.pilot, activeTrip(state), now);
+  const ctx = buildContext(state.pilot, primaryTrip(state.trips, now), now);
   const current = ctx.layover ?? ctx.nextLayover;
   const currentGuide = current ? guideForAirport(current.airport) : null;
 
@@ -118,7 +119,7 @@ export function LayoverCity() {
   const guide = guideByKey(key);
   const state = useCrew();
   const now = useNow();
-  const ctx = buildContext(state.pilot, activeTrip(state), now);
+  const ctx = buildContext(state.pilot, primaryTrip(state.trips, now), now);
 
   const airport = guide ? findAirport(guide.airports[0]) : null;
   const wx = useForecast(airport, 2);

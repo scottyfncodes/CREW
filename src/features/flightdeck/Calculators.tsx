@@ -31,7 +31,7 @@ import * as U from '../../core/calc/units';
 import { formatDuration, timeIn, zoneAbbr } from '../../core/time/time';
 import { buildContext } from '../../core/context/engine';
 import { AIRPORTS, findAirport, runwayEnds } from '../../data/airportIndex';
-import { activeTrip } from '../../store/state';
+import { primaryTrip } from '../../core/context/schedule';
 import { useCrew } from '../../store/store';
 import { Advisory, Empty, Field, Panel, Stat, Stats } from '../../ui/primitives';
 import { TOOLS } from './Deck';
@@ -533,7 +533,7 @@ function ConvertTool() {
 function TimeZoneTool() {
   const now = useNow(1000);
   const state = useCrew();
-  const trip = activeTrip(state);
+  const trip = primaryTrip(state.trips, now);
   const ctx = buildContext(state.pilot, trip, now);
   const [extra, setExtra] = useState('');
 

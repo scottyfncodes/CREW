@@ -1,14 +1,57 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findAirline, parseFlightNumber, toCallsign, toIataFlightNumber } from '../data/airlines';
 import {
   aircraftIdFromIcaoType,
   aircraftIdFromModel,
+  lookupFlight,
   lookupFromHistory,
   parseAdbTime,
+  statusFromAdb,
 } from './flightLookup';
 import { parseSchedule } from '../core/parse/schedule';
 import { timeIn } from '../core/time/time';
 import type { Trip } from '../core/types';
+import { DEFAULT_INTEGRATIONS, DEFAULT_PILOT, type CrewState } from '../store/state';
+import { clearCache } from './fetcher';
+
+/** A localStorage stand-in, since these tests run outside a browser. */
+class MemoryStorage {
+  private map = new Map<string, string>();
+  getItem(k: string) {
+    return this.map.get(k) ?? null;
+  }
+  setItem(k: string, v: string) {
+    this.map.set(k, v);
+  }
+  removeItem(k: string) {
+    this.map.delete(k);
+  }
+  key(i: number) {
+    return [...this.map.keys()][i] ?? null;
+  }
+  get length() {
+    return this.map.size;
+  }
+  clear() {
+    this.map.clear();
+  }
+}
+
+function fakeState(overrides: Partial<CrewState> = {}): CrewState {
+  return {
+    version: 1,
+    pilot: DEFAULT_PILOT,
+    integrations: DEFAULT_INTEGRATIONS,
+    trips: [],
+    flights: [],
+    tails: [],
+    expenses: [],
+    placeFeelings: {},
+    games: {},
+    sampleDismissed: true,
+    ...overrides,
+  };
+}
 
 describe('parseFlightNumber', () => {
   it('reads a bare number', () => {
@@ -159,5 +202,107 @@ describe('lookupFromHistory', () => {
     }).trip!;
     const r = lookupFromHistory('1234', '2026-10-05', [tzTrip]);
     expect(r.blockMinutes).toBe(110);
+  });
+});
+
+describe('statusFromAdb', () => {
+  it('maps AeroDataBox vocabulary onto the small CREW status set', () => {
+    expect(statusFromAdb('Landed')).toBe('landed');
+    expect(statusFromAdb('EnRoute')).toBe('enroute');
+    expect(statusFromAdb('Departed')).toBe('enroute');
+    expect(statusFromAdb('Canceled')).toBe('cancelled');
+    expect(statusFromAdb('Expected')).toBe('scheduled');
+  });
+
+  it('returns null for anything unfamiliar rather than guessing', () => {
+    expect(statusFromAdb('SomeNewApiValue')).toBeNull();
+    expect(statusFromAdb(undefined)).toBeNull();
+    expect(statusFromAdb('')).toBeNull();
+  });
+});
+
+describe('lookupFlight (the full chain)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage());
+    clearCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('resolves from history alone when the flight is not airborne and no key is set', async () => {
+    const trip = parseSchedule('DAY 1 18SEP\n5142 DAY CLT 0600 0721', {
+      anchorDate: '2026-09-18',
+      anchorTz: 'America/New_York',
+    }).trip!;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('offline');
+    }));
+    const r = await lookupFlight('5142', '2026-10-05', fakeState({ trips: [trip] }), { today: '2026-10-01' });
+    expect(r?.from).toBe('KDAY');
+    expect(r?.origin.from).toBe('history');
+    expect(r?.notes.join(' ')).toMatch(/retimed/i);
+  });
+
+  it('says plainly when nothing is found anywhere', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('offline');
+    }));
+    const r = await lookupFlight('9999', '2026-10-05', fakeState(), { today: '2026-10-01' });
+    expect(r).not.toBeNull();
+    expect(r!.from).toBeNull();
+    expect(r!.to).toBeNull();
+    expect(Object.keys(r!.origin)).toHaveLength(0);
+    expect(r!.notes.join(' ')).toMatch(/not seen this flight number/i);
+  });
+
+  it('resolves nothing rather than throwing when every network call fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('network down');
+    }));
+    const r = await lookupFlight('9999', '2026-10-05', fakeState({ integrations: { aeroDataBoxKey: 'k' } }), {
+      today: '2026-10-01',
+    });
+    expect(r).not.toBeNull();
+    expect(r!.notes.join(' ')).toContain('AeroDataBox');
+  });
+
+  it('returns null only for input that is not a flight number at all', async () => {
+    const r = await lookupFlight('not a flight number', '2026-10-05', fakeState());
+    expect(r).toBeNull();
+  });
+
+  it('lets a schedule-sourced field outrank the same field from history', async () => {
+    const trip = parseSchedule('DAY 1 18SEP\n5142 DAY CLT 0600 0721', {
+      anchorDate: '2026-09-18',
+      anchorTz: 'America/New_York',
+    }).trip!;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('aerodatabox')) {
+          return new Response(
+            JSON.stringify([
+              {
+                departure: { airport: { icao: 'KDAY' }, scheduledTime: { utc: '2026-10-05 06:30Z' } },
+                arrival: { airport: { icao: 'KCLT' }, scheduledTime: { utc: '2026-10-05 07:50Z' } },
+                aircraft: { model: 'Bombardier CRJ 900', reg: 'N999PS' },
+                status: 'Scheduled',
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        throw new Error('not airborne');
+      }),
+    );
+    const r = await lookupFlight('5142', '2026-10-05', fakeState({ trips: [trip], integrations: { aeroDataBoxKey: 'k' } }), {
+      today: '2026-10-01',
+    });
+    expect(r?.origin.depart).toBe('schedule');
+    expect(r?.tail).toBe('N999PS');
+    expect(r?.aircraftId).toBe('crj900');
   });
 });

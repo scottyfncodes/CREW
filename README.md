@@ -19,34 +19,67 @@ labelled as such throughout, and every screen that shows operationally
 significant information links to the official source. Nothing in the app is
 ever fabricated: a value the source did not provide renders as unknown.
 
-## The five worlds
+## The loop
 
-| World | What it is |
+CREW is organised around one loop, not a grid of features:
+
+**Schedule → Today → Flight/Layover → Logbook**
+
+A pilot builds a trip in Schedule — a flight number and a date at a time, or
+a whole pairing pasted in one go. Today is generated from whatever trip is
+current or next: report time, the leg in progress, the layover, tomorrow.
+Landing a flight surfaces it for a one-tap review into the Logbook, which is
+also where personal flying history — fleet, airports, cities — lives.
+
+| Tab | What it is |
 | --- | --- |
-| **Today** | The contextual home. Reads the trip, the clock and where you are, and shows what matters now — leave-home time, next leg, airborne progress, the layover, tomorrow's report. |
-| **Flight Deck** | Aircraft profiles and comparison, airport briefs with live METAR/TAF, and eight aviation calculators. |
-| **Layover** | Time-aware city guides. "I have five hours" produces a realistic plan, not fifty restaurants. |
-| **Off Duty** | Pay and per diem against your own assumptions, expenses, logbook totals. |
-| **Play** | Aircraft, airport, distance and engine games, plus your fleet, airports, cities and flights. |
+| **Today** | The contextual home. Reads the trip, the clock and where you are, and shows what matters now — leave-home time, next leg, airborne progress, the layover, a flight ready to log, tomorrow's report. |
+| **Schedule** | Add a flight by number and date — CREW looks up the route, times and aircraft and asks you to confirm. Flights on nearby dates fold into the same trip automatically. Current / upcoming / past trips, each editable. |
+| **Logbook** | What actually happened. A landed flight waits here for a one-tap review before it becomes a permanent record. Also fleet, airports, cities and every flight you've flown. |
+| **Tools** | Everything else that still earns a place: aircraft and airport reference, eight aviation calculators, pay and expenses, layover guides, trivia games, settings. |
+
+Layover exploration and individual flight/aircraft/airport detail are reached
+contextually — from a Today card, a Schedule trip, or Tools' reference
+section — rather than living as their own top-level tabs.
 
 ## Architecture
 
-The point of the design is that these are not five apps. One context model
-feeds all of them.
+The point of the design is that these are not separate apps. One `Trip` model
+— `Trip → DutyDay → Leg` — feeds Schedule, Today, Layover, pay and the
+Logbook alike; a `Leg` is canonical, never re-typed into a parallel shape.
 
 ```
 src/
   core/          Pure domain logic. No React, no network, fully tested.
-    types.ts       Pilot, Trip, DutyDay, Leg, Airport, AircraftSpec, Place...
+    types.ts       Pilot, Trip, DutyDay, Leg, FlightRecord, Airport, Place...
     time/          Timezone-correct instants, durations, wall-clock rendering
     calc/          Atmosphere, wind, navigation, unit conversion
-    parse/         Pasted-schedule parser ("Make Sense Of This")
-    context/       The context engine, trip derivations, layover, pay, stats
+    parse/         Pasted-pairing parser (paste-a-whole-trip path)
+    context/
+      engine.ts      What is the pilot doing right now, and which Today
+                      cards follow from it
+      schedule.ts    Trip phase (current/upcoming/past), folding a new
+                      flight into the right trip and day, and which landed
+                      legs are ready to become logbook entries
+      trip.ts        Derivations off a single Trip: duty time, layovers,
+                      route lines, leave-home time
+      layover.ts, pay.ts, stats.ts
   data/          Curated reference datasets, each entry carrying its sources
-  services/      The only code that touches the network, with caching,
-                 staleness flags and graceful failure
+  services/
+    flightLookup.ts  Flight-number + date -> a fillable flight. Checks the
+                      pilot's own trip history first (free, instant), then
+                      live ADS-B, then AeroDataBox if a key is set — merges
+                      what comes back and labels every field's source
+    weather.ts, fetcher.ts
   store/         One state tree, localStorage-backed, no state library
-  features/      Screens. Presentation only — they read core and services
+  features/
+    schedule/      Add a flight, browse current/upcoming/past trips, edit
+                    a trip's legs
+    logbook/       Fleet/airports/cities/flights, and reviewing a landed
+                    leg into a permanent record
+    home/          Today
+    tools/, flightdeck/, aircraft/, airport/, layover/, offduty/, play/,
+    settings/, makesense/   Reference material and the paste-a-pairing path
   ui/            Shared primitives
 ```
 
@@ -66,7 +99,15 @@ Rules the codebase holds to:
 `core/context/engine.ts` answers one question — what is the pilot doing right
 now — and returns a `PilotContext` plus an ordered list of home cards. The
 home screen renders that list; it does not decide it. States are `no-trip`,
-`pre-trip`, `leave-soon`, `on-duty`, `layover` and `trip-complete`.
+`pre-trip`, `leave-soon`, `on-duty`, `layover` and `trip-complete`. The trip it
+builds from is whichever one `core/context/schedule.ts` decides is current
+right now, or failing that the soonest upcoming one — a pilot never has to
+tell CREW which trip is "active."
+
+A landed leg not yet in the logbook (`unloggedLegs`, cross-referenced by
+`FlightRecord.sourceLegId`) always earns a "ready to log" card, wherever it
+happened in the trip — not just on whatever day the context currently reads
+as "today."
 
 ### Data provenance
 

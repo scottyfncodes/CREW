@@ -203,6 +203,21 @@ export function routeLine(day: DutyDay): string {
   return codes.join(' → ');
 }
 
+/** The whole trip's route across every day, same shape as routeLine. */
+export function tripRouteLine(trip: Trip): string {
+  const codes: string[] = [];
+  for (const day of trip.days) {
+    for (const l of day.legs) {
+      const from = findAirport(l.from)?.iata ?? l.from;
+      const to = findAirport(l.to)?.iata ?? l.to;
+      if (codes.length === 0) codes.push(from);
+      else if (codes[codes.length - 1] !== from) codes.push(from);
+      codes.push(to);
+    }
+  }
+  return codes.length ? codes.join(' → ') : '—';
+}
+
 /** The duty day containing, or next after, a given instant. */
 export function activeDayIndex(trip: Trip, now: Date): number {
   for (let i = 0; i < trip.days.length; i++) {

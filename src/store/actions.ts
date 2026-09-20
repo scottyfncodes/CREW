@@ -3,6 +3,7 @@
 import type {
   Expense,
   FlightRecord,
+  Leg,
   PayAssumptions,
   Pilot,
   Preferences,
@@ -11,6 +12,7 @@ import type {
 } from '../core/types';
 import { findAirport } from '../data/airportIndex';
 import { dateKeyIn } from '../core/time/time';
+import { appendFlightToTrips, type NewLegInput } from '../core/context/schedule';
 import { setState } from './store';
 import type { GameStats, PlaceFeeling } from './state';
 import { buildSampleFlights, buildSampleTails, buildSampleTrip } from './seed';
@@ -29,23 +31,12 @@ export function updatePay(patch: Partial<PayAssumptions>): void {
   setState((s) => ({ ...s, pilot: { ...s.pilot, pay: { ...s.pilot.pay, ...patch } } }));
 }
 
-export function addTrip(trip: Trip, makeActive = true): void {
-  setState((s) => ({
-    ...s,
-    trips: [trip, ...s.trips.filter((t) => t.id !== trip.id)],
-    activeTripId: makeActive ? trip.id : s.activeTripId,
-  }));
-}
-
-export function setActiveTrip(tripId: string | null): void {
-  setState((s) => ({ ...s, activeTripId: tripId }));
+export function addTrip(trip: Trip): void {
+  setState((s) => ({ ...s, trips: [trip, ...s.trips.filter((t) => t.id !== trip.id)] }));
 }
 
 export function deleteTrip(tripId: string): void {
-  setState((s) => {
-    const trips = s.trips.filter((t) => t.id !== tripId);
-    return { ...s, trips, activeTripId: s.activeTripId === tripId ? (trips[0]?.id ?? null) : s.activeTripId };
-  });
+  setState((s) => ({ ...s, trips: s.trips.filter((t) => t.id !== tripId) }));
 }
 
 export function updateTrip(tripId: string, patch: Partial<Trip>): void {
@@ -62,8 +53,106 @@ export function setHotel(tripId: string, dayId: string, hotel: Trip['days'][numb
   }));
 }
 
+/** Set (or clear) report/release for one duty day — the leave-home nudge needs a report time to work from. */
+export function setDutyTimes(tripId: string, dayId: string, patch: { reportAt?: string | null; releaseAt?: string | null }): void {
+  setState((s) => ({
+    ...s,
+    trips: s.trips.map((t) =>
+      t.id === tripId ? { ...t, days: t.days.map((d) => (d.id === dayId ? { ...d, ...patch } : d)) } : t,
+    ),
+  }));
+}
+
+/**
+ * Fold one flight into the schedule: flight number and date in, a Leg out.
+ * Finds the trip this flight belongs with (or starts a new one) and returns
+ * the ids so the caller can navigate straight to it. This is the whole of
+ * "Add to Schedule" — see core/context/schedule.ts for the matching rule.
+ */
+export function addFlightToSchedule(
+  dateKey: string,
+  leg: Omit<NewLegInput, 'id'>,
+): { tripId: string; legId: string } {
+  const legId = uid('leg');
+  const newDayId = uid('day');
+  let newTripId = '';
+  let resolvedTripId = '';
+
+  setState((s) => {
+    newTripId = uid('trip');
+    const before = new Set(s.trips.map((t) => t.id));
+    const trips = appendFlightToTrips(s.trips, dateKey, { ...leg, id: legId }, newDayId, newTripId);
+    resolvedTripId = trips.find((t) => !before.has(t.id))?.id ?? trips.find((t) => t.days.some((d) => d.legs.some((l) => l.id === legId)))!.id;
+    return { ...s, trips };
+  });
+
+  return { tripId: resolvedTripId, legId };
+}
+
+/** Edit a leg already on the schedule — used for both corrections and status updates. */
+export function updateLeg(tripId: string, dayId: string, legId: string, patch: Partial<Leg>): void {
+  setState((s) => ({
+    ...s,
+    trips: s.trips.map((t) =>
+      t.id !== tripId
+        ? t
+        : {
+            ...t,
+            days: t.days.map((d) =>
+              d.id !== dayId ? d : { ...d, legs: d.legs.map((l) => (l.id === legId ? { ...l, ...patch } : l)) },
+            ),
+          },
+    ),
+  }));
+}
+
+/**
+ * Remove a leg from the schedule. An emptied day is dropped too, and a
+ * trip left with no days at all is removed — an add can always be undone.
+ */
+export function deleteLeg(tripId: string, dayId: string, legId: string): void {
+  setState((s) => ({
+    ...s,
+    trips: s.trips
+      .map((t) => {
+        if (t.id !== tripId) return t;
+        const days = t.days
+          .map((d) => (d.id !== dayId ? d : { ...d, legs: d.legs.filter((l) => l.id !== legId) }))
+          .filter((d) => d.legs.length > 0 || d.hotel);
+        return { ...t, days };
+      })
+      .filter((t) => t.days.length > 0),
+  }));
+}
+
+/** Move a leg earlier or later within its day — simple reordering, no drag-and-drop. */
+export function moveLeg(tripId: string, dayId: string, legId: string, direction: 'up' | 'down'): void {
+  setState((s) => ({
+    ...s,
+    trips: s.trips.map((t) => {
+      if (t.id !== tripId) return t;
+      return {
+        ...t,
+        days: t.days.map((d) => {
+          if (d.id !== dayId) return d;
+          const i = d.legs.findIndex((l) => l.id === legId);
+          const j = direction === 'up' ? i - 1 : i + 1;
+          if (i < 0 || j < 0 || j >= d.legs.length) return d;
+          const legs = [...d.legs];
+          [legs[i], legs[j]] = [legs[j], legs[i]];
+          return { ...d, legs };
+        }),
+      };
+    }),
+  }));
+}
+
 export function logFlight(record: Omit<FlightRecord, 'id'>): void {
   setState((s) => {
+    // A record tied to a schedule leg is never duplicated — re-submitting a
+    // review screen (a double tap, a back-and-retry) is a no-op, not a
+    // second logbook entry.
+    if (record.sourceLegId && s.flights.some((f) => f.sourceLegId === record.sourceLegId)) return s;
     const flights = [{ ...record, id: uid('flt') }, ...s.flights];
     const tails = record.tail ? touchTail(s.tails, record.tail, record.aircraftId, record.date) : s.tails;
     return { ...s, flights, tails };
@@ -93,8 +182,10 @@ export function deleteFlight(flightId: string): void {
 }
 
 /**
- * Pull every completed leg of a trip into the logbook.
- * Deadheads are skipped — they are not flight time.
+ * Pull every completed leg of a trip into the logbook in one go.
+ * Deadheads are skipped — they are not flight time. A leg already logged
+ * (by sourceLegId, or by the old date/route match for entries logged before
+ * that field existed) is never re-added.
  */
 export function logTripLegs(trip: Trip, seat: 'FO' | 'CA'): number {
   let added = 0;
@@ -108,7 +199,7 @@ export function logTripLegs(trip: Trip, seat: 'FO' | 'CA'): number {
         const tz = findAirport(leg.from)?.tz ?? 'UTC';
         const date = dateKeyIn(leg.depart, tz) ?? day.date;
         const already = flights.some(
-          (f) => f.date === date && f.from === leg.from && f.to === leg.to && !f.sample,
+          (f) => f.sourceLegId === leg.id || (f.date === date && f.from === leg.from && f.to === leg.to && !f.sample),
         );
         if (already) continue;
         flights = [
@@ -121,6 +212,7 @@ export function logTripLegs(trip: Trip, seat: 'FO' | 'CA'): number {
             tail: leg.tail ?? undefined,
             blockMinutes: leg.blockMinutes,
             seat,
+            sourceLegId: leg.id,
           },
           ...flights,
         ];
@@ -191,7 +283,7 @@ export function dismissSampleBanner(): void {
 /** Regenerate the demo pairing against today, for when it has gone stale. */
 export function refreshSampleTrip(): void {
   const trip = buildSampleTrip();
-  setState((s) => ({ ...s, trips: [trip, ...s.trips], activeTripId: trip.id }));
+  setState((s) => ({ ...s, trips: [trip, ...s.trips] }));
 }
 
 export function restoreSampleData(): void {
