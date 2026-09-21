@@ -123,10 +123,11 @@ a { color: var(--accent); text-decoration: none; }
   bottom: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  background: rgba(10, 14, 19, 0.92);
+  grid-template-columns: repeat(4, 1fr);
+  background: rgba(9, 12, 17, 0.98);
   backdrop-filter: blur(18px);
   border-top: 1px solid var(--line);
+  box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.4);
   padding-bottom: env(safe-area-inset-bottom);
   max-width: 720px;
   margin: 0 auto;
@@ -138,7 +139,7 @@ a { color: var(--accent); text-decoration: none; }
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: var(--nav-h);
+  min-height: var(--nav-h);
   color: var(--text-faint);
   font-size: 10px;
   font-weight: 600;
