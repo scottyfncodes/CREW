@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppRouter } from './app/router';
+import { requestPersistentStorage } from './store/store';
 import './styles/global.css';
 
 const root = document.getElementById('root');
@@ -11,6 +12,8 @@ createRoot(root).render(
     <AppRouter />
   </StrictMode>,
 );
+
+requestPersistentStorage();
 
 // Register the offline service worker. Failing to register is not fatal —
 // the app simply works online only.

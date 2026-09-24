@@ -69,8 +69,11 @@ export function partOfDayFor(now: Date, tz: string): PilotContext['partOfDay'] {
   return 'night';
 }
 
-/** How far ahead a trip counts as "coming up" rather than "later". */
-const PRE_TRIP_HORIZON_MIN = 36 * 60;
+/**
+ * How close report has to be for tonight's sleep to be about it. Further out
+ * than this, an "asleep by" time would be a wall-clock time on some other day.
+ */
+const SLEEP_HORIZON_MIN = 20 * 60;
 
 export function buildContext(
   pilot: Pilot,
@@ -154,7 +157,6 @@ export function buildContext(
   else if (reportAt && releaseAt && now >= reportAt && now < releaseAt) state = 'on-duty';
   else if (reportAt && now >= reportAt) state = 'on-duty';
   else if (leaveHome && now >= new Date(leaveHome.getTime() - 90 * 60_000)) state = 'leave-soon';
-  else if (reportAt && minutesBetween(now, reportAt)! <= PRE_TRIP_HORIZON_MIN) state = 'pre-trip';
   else state = 'pre-trip';
 
   return {
@@ -229,7 +231,12 @@ export function homeCards(ctx: PilotContext): HomeCardKind[] {
 
     case 'pre-trip':
       cards.push('report');
-      if (ctx.partOfDay === 'evening' || ctx.partOfDay === 'night') cards.push('sleep');
+      if (
+        (ctx.partOfDay === 'evening' || ctx.partOfDay === 'night') &&
+        ctx.minutesToReport !== null &&
+        ctx.minutesToReport <= SLEEP_HORIZON_MIN
+      )
+        cards.push('sleep');
       cards.push('trip', 'weather', 'aircraft', 'airport');
       break;
 

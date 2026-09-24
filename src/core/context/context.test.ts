@@ -134,6 +134,13 @@ describe('context engine', () => {
     expect(homeCards(c)[0]).toBe('report');
   });
 
+  it('shows the sleep card the evening before report, not evenings earlier', () => {
+    // 21:00 EDT the night before an 05:15 report.
+    expect(homeCards(ctx('2026-09-18T01:00:00Z'))).toContain('sleep');
+    // 21:00 EDT three nights before.
+    expect(homeCards(ctx('2026-09-16T01:00:00Z'))).not.toContain('sleep');
+  });
+
   it('switches to leave-soon inside the commute window', () => {
     // Report 09:15Z; leave home 08:18Z; window opens 06:48Z.
     const c = ctx('2026-09-18T07:30:00Z');

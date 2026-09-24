@@ -1,12 +1,18 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Screen, TopBar } from '../../app/AppShell';
 import type { CommuteMode } from '../../core/types';
 import { AIRCRAFT } from '../../data/aircraft';
 import { findAirport, searchAirports } from '../../data/airportIndex';
 import { findAirline } from '../../data/airlines';
 import { clearCache } from '../../services/fetcher';
+import { logbookCsv } from '../../core/export/logbookCsv';
+import { relative } from '../../core/time/time';
+import { useNow } from '../../app/useNow';
+import { backupFilename, buildBackup, parseBackup } from '../../store/backup';
 import {
   clearSampleData,
+  markBackedUp,
+  restoreBackup,
   setAeroDataBoxKey,
   refreshSampleTrip,
   restoreSampleData,
@@ -14,7 +20,8 @@ import {
   updatePilot,
   updatePrefs,
 } from '../../store/actions';
-import { clearEverything, useCrew } from '../../store/store';
+import { clearEverything, getState, useCrew } from '../../store/store';
+import { downloadText } from '../../ui/download';
 import { Advisory, Field, Panel, Toggle } from '../../ui/primitives';
 
 const COMMUTE_MODES: { id: CommuteMode; label: string }[] = [
@@ -332,6 +339,8 @@ export function Settings() {
           )}
         </Panel>
 
+        <BackupPanel />
+
         <Panel title="Data">
           <button type="button" className="btn ghost" style={{ marginBottom: 8 }} onClick={refreshSampleTrip}>
             Regenerate the sample pairing for today
@@ -429,5 +438,86 @@ function AirportPicker({
         </div>
       )}
     </Field>
+  );
+}
+
+function BackupPanel() {
+  const state = useCrew();
+  const now = useNow();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState<{ tone: 'go' | 'warn'; text: string } | null>(null);
+  const realFlights = state.flights.filter((f) => !f.sample).length;
+
+  const exportBackup = () => {
+    const at = new Date();
+    downloadText(backupFilename(at), JSON.stringify(buildBackup(getState(), at), null, 2), 'application/json');
+    markBackedUp(at);
+    setMessage({ tone: 'go', text: 'Backup saved. Keep it somewhere that is not this phone.' });
+  };
+
+  const exportCsv = () => {
+    downloadText(`crew-logbook-${new Date().toISOString().slice(0, 10)}.csv`, logbookCsv(state.flights), 'text/csv');
+  };
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    const parsed = parseBackup(await file.text());
+    if (fileInput.current) fileInput.current.value = '';
+    if (!parsed.ok) {
+      setMessage({ tone: 'warn', text: parsed.error });
+      return;
+    }
+    const { summary } = parsed;
+    const when = summary.exportedAt ? ` from ${summary.exportedAt.slice(0, 10)}` : '';
+    const ok = confirm(
+      `Restore the backup${when}? It has ${summary.trips} trip${summary.trips === 1 ? '' : 's'} and ` +
+        `${summary.flights} logbook entr${summary.flights === 1 ? 'y' : 'ies'}, and replaces everything on this device.`,
+    );
+    if (!ok) return;
+    restoreBackup(parsed.state);
+    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    setMessage({
+      tone: 'go',
+      text: `Restored ${plural(summary.flights, 'logbook entry', 'logbook entries')} and ${plural(summary.trips, 'trip', 'trips')}.`,
+    });
+  };
+
+  return (
+    <Panel title="Backup">
+      <p className="small dim" style={{ margin: '0 0 12px' }}>
+        {state.lastBackupAt ? (
+          <>Last backup {relative(state.lastBackupAt, now) === 'now' ? 'just now' : relative(state.lastBackupAt, now)}.</>
+        ) : (
+          <span className={realFlights > 0 ? 'caution-text' : undefined}>
+            Never backed up{realFlights > 0 ? ` — ${realFlights} logbook entr${realFlights === 1 ? 'y' : 'ies'} exist only on this device` : ''}.
+          </span>
+        )}
+      </p>
+      <button type="button" className="btn primary" style={{ marginBottom: 8 }} onClick={exportBackup}>
+        Save a backup file
+      </button>
+      <button type="button" className="btn ghost" style={{ marginBottom: 8 }} onClick={() => fileInput.current?.click()}>
+        Restore from a backup
+      </button>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="application/json,.json"
+        hidden
+        onChange={(e) => void onFile(e.target.files?.[0])}
+      />
+      <button type="button" className="btn ghost" disabled={realFlights === 0} onClick={exportCsv}>
+        Export logbook as CSV
+      </button>
+      {message && (
+        <p className={`small ${message.tone === 'go' ? 'go' : 'warn-text'}`} style={{ margin: '10px 0 0' }}>
+          {message.text}
+        </p>
+      )}
+      <p className="tiny faint" style={{ marginTop: 10 }}>
+        A backup is every trip, logbook entry, expense and preference in one file. Your AeroDataBox key is never
+        included. The CSV opens in any spreadsheet or logbook app; sample entries are left out.
+      </p>
+    </Panel>
   );
 }

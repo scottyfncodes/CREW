@@ -2,14 +2,16 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Screen, TopBar } from '../../app/AppShell';
 import { useNow } from '../../app/useNow';
+import { cumulativeLimits, limitTone, type CumulativeLimit } from '../../core/context/limits';
 import { pendingLogbookLegs } from '../../core/context/schedule';
 import { airportVisits, fleetFromLog, logbookTotals } from '../../core/context/stats';
-import { formatDuration, formatHoursDecimal, relative } from '../../core/time/time';
+import { dateKeyIn, formatDuration, formatHoursDecimal, relative } from '../../core/time/time';
 import { aircraftLabel, findAircraft } from '../../data/aircraft';
 import { findAirport } from '../../data/airportIndex';
 import { guideForAirport } from '../../data/layovers';
+import { deleteFlight } from '../../store/actions';
 import { useCrew } from '../../store/store';
-import { Empty, Panel, Stat, Stats } from '../../ui/primitives';
+import { Advisory, Empty, Panel, Stat, Stats } from '../../ui/primitives';
 
 /**
  * Logbook: what actually happened. Fed by the schedule — a completed flight
@@ -25,6 +27,13 @@ export function Logbook() {
   const totals = useMemo(() => logbookTotals(state.flights, state.tails), [state.flights, state.tails]);
   const fleet = useMemo(() => fleetFromLog(state.flights, state.tails), [state.flights, state.tails]);
   const visits = useMemo(() => airportVisits(state.flights), [state.flights]);
+  const today = dateKeyIn(now, findAirport(state.pilot.homeAirport)?.tz ?? 'UTC') ?? now.toISOString().slice(0, 10);
+  const limits = useMemo(() => cumulativeLimits(state.flights, state.trips, today), [state.flights, state.trips, today]);
+  const [editing, setEditing] = useState(false);
+  const flightsNewestFirst = useMemo(
+    () => [...state.flights].sort((a, b) => b.date.localeCompare(a.date)),
+    [state.flights],
+  );
   const cities = useMemo(() => {
     const map = new Map<string, { city: string; guideKey: string | null; visits: number }>();
     for (const v of visits) {
@@ -85,6 +94,8 @@ export function Logbook() {
           <Stat k="Airports" v={totals.airports} />
           <Stat k="Airframes" v={fleet.filter((f) => f.flights > 0).length} />
         </Stats>
+
+        <LimitsPanel limits={limits.limits} includesSchedule={limits.includesSchedule} today={today} />
 
         <div className="scroller" style={{ margin: '14px 0 12px' }}>
           {(['fleet', 'airports', 'cities', 'flights'] as const).map((t) => (
@@ -164,6 +175,14 @@ export function Logbook() {
           </Panel>
         )}
 
+        {tab === 'flights' && state.flights.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '-4px 0 8px' }}>
+            <button type="button" className={`chip ${editing ? 'on' : ''}`} onClick={() => setEditing((e) => !e)}>
+              {editing ? 'Done' : 'Edit'}
+            </button>
+          </div>
+        )}
+
         {tab === 'flights' && (
           <Panel className="flush">
             <div className="list inset">
@@ -172,9 +191,9 @@ export function Logbook() {
                   <Link to="/schedule/add">Add one by flight number</Link>
                 </Empty>
               )}
-              {state.flights.slice(0, 80).map((f) => (
+              {flightsNewestFirst.slice(0, 200).map((f) => (
                 <div key={f.id} className="row">
-                  <span className="mono small faint" style={{ width: 74, flex: 'none' }}>
+                  <span className="mono small faint" style={{ width: 90, flex: 'none', whiteSpace: 'nowrap' }}>
                     {f.date}
                   </span>
                   <div className="grow small">
@@ -187,13 +206,78 @@ export function Logbook() {
                       {f.sample ? ' · sample' : ''}
                     </div>
                   </div>
-                  <span className="mono">{formatDuration(f.blockMinutes)}</span>
+                  {editing ? (
+                    <button
+                      type="button"
+                      className="chip warn"
+                      onClick={() => {
+                        const route = `${findAirport(f.from)?.iata ?? f.from} → ${findAirport(f.to)?.iata ?? f.to}`;
+                        if (confirm(`Delete ${route} on ${f.date} from your logbook?`)) deleteFlight(f.id);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  ) : (
+                    <span className="mono">{formatDuration(f.blockMinutes)}</span>
+                  )}
                 </div>
               ))}
+              {flightsNewestFirst.length > 200 && (
+                <div className="tiny faint" style={{ padding: '10px 0' }}>
+                  Showing the latest 200 of {flightsNewestFirst.length}. Export the full logbook as CSV from Settings.
+                </div>
+              )}
             </div>
           </Panel>
         )}
       </Screen>
     </>
+  );
+}
+
+/**
+ * FAR 117 cumulative flight-time limits, today and at their peak across what
+ * is already on the schedule — so a pilot sees a limit coming before a trip
+ * pickup or swap pushes them into it.
+ */
+function LimitsPanel({ limits, includesSchedule, today }: { limits: CumulativeLimit[]; includesSchedule: boolean; today: string }) {
+  if (limits.every((l) => l.peak.minutes === 0)) return null;
+  return (
+    <Panel title="Flight time limits" action={<span className="tiny faint">FAR 117.23</span>}>
+      {limits.map((l) => {
+        const tone = limitTone(l.peak.minutes, l.limitMinutes);
+        const pct = Math.min(100, (l.todayMinutes / l.limitMinutes) * 100);
+        const peakPct = Math.min(100, (l.peak.minutes / l.limitMinutes) * 100);
+        const color = tone === 'warn' ? 'var(--warn)' : tone === 'caution' ? 'var(--caution)' : 'var(--accent)';
+        return (
+          <div key={l.label} style={{ marginBottom: 14 }}>
+            <div className="row" style={{ borderBottom: 0, padding: '0 0 6px' }}>
+              <span className="grow small">
+                <span className="strong">Last {l.label}</span>
+              </span>
+              <span className="mono small">
+                <span className="strong">{formatHoursDecimal(l.todayMinutes)}</span>
+                <span className="faint"> / {l.limitMinutes / 60}h</span>
+              </span>
+            </div>
+            <div className="bar limit-bar" aria-hidden>
+              <span className="limit-peak" style={{ width: `${peakPct}%`, background: color }} />
+              <span style={{ width: `${pct}%`, background: color }} />
+            </div>
+            {l.peak.date !== today && l.peak.minutes > l.todayMinutes && (
+              <div className={`tiny ${tone === 'go' ? 'faint' : tone === 'caution' ? 'caution-text' : 'warn-text'}`} style={{ marginTop: 6 }}>
+                Peaks at {formatHoursDecimal(l.peak.minutes)}h on {l.peak.date} with your schedule
+                {tone === 'warn' ? ' — over the limit' : tone === 'caution' ? ' — close to the limit' : ''}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <Advisory>
+        For awareness, not a legality check. Totals are block time from your logbook
+        {includesSchedule ? ' plus scheduled flights not yet logged' : ''}, counted by calendar day — the 672-hour
+        window is read as 28 days. Your company's crew tracking is the source of truth.
+      </Advisory>
+    </Panel>
   );
 }

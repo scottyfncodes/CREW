@@ -13,8 +13,8 @@ import type {
 import { findAirport } from '../data/airportIndex';
 import { dateKeyIn } from '../core/time/time';
 import { appendFlightToTrips, type NewLegInput } from '../core/context/schedule';
-import { setState } from './store';
-import type { GameStats, PlaceFeeling } from './state';
+import { hydrate, setState } from './store';
+import type { CrewState, GameStats, PlaceFeeling } from './state';
 import { buildSampleFlights, buildSampleTails, buildSampleTrip } from './seed';
 
 const uid = (p: string) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -293,4 +293,29 @@ export function restoreSampleData(): void {
     tails: s.tails.length ? s.tails : buildSampleTails(),
     sampleDismissed: false,
   }));
+}
+
+/**
+ * Replace everything with a backup. The AeroDataBox key on this device is
+ * kept — backups never carry it — and a slice the backup lacks comes back
+ * empty rather than as sample data.
+ */
+export function restoreBackup(backup: Partial<Omit<CrewState, 'integrations'>>): void {
+  setState((s) =>
+    hydrate({
+      trips: [],
+      flights: [],
+      tails: [],
+      expenses: [],
+      placeFeelings: {},
+      games: {},
+      sampleDismissed: true,
+      ...backup,
+      integrations: s.integrations,
+    }),
+  );
+}
+
+export function markBackedUp(at: Date): void {
+  setState((s) => ({ ...s, lastBackupAt: at.toISOString() }));
 }
