@@ -25,6 +25,7 @@ function freshState(): CrewState {
     placeFeelings: {},
     games: {},
     sampleDismissed: false,
+    lastBackupAt: null,
   };
 }
 
@@ -34,16 +35,20 @@ function load(): CrewState {
     if (!raw) return freshState();
     const parsed = JSON.parse(raw) as Partial<CrewState>;
     if (parsed.version !== STATE_VERSION) return freshState();
-    // Merge against defaults so a state written by an older build still boots.
-    return {
-      ...freshState(),
-      ...parsed,
-      pilot: { ...DEFAULT_PILOT, ...parsed.pilot, prefs: { ...DEFAULT_PILOT.prefs, ...parsed.pilot?.prefs }, pay: { ...DEFAULT_PILOT.pay, ...parsed.pilot?.pay } },
-      integrations: { ...DEFAULT_INTEGRATIONS, ...parsed.integrations },
-    } as CrewState;
+    return hydrate(parsed);
   } catch {
     return freshState();
   }
+}
+
+/** Merge against defaults so a state written by an older build still boots. */
+export function hydrate(parsed: Partial<CrewState>): CrewState {
+  return {
+    ...freshState(),
+    ...parsed,
+    pilot: { ...DEFAULT_PILOT, ...parsed.pilot, prefs: { ...DEFAULT_PILOT.prefs, ...parsed.pilot?.prefs }, pay: { ...DEFAULT_PILOT.pay, ...parsed.pilot?.pay } },
+    integrations: { ...DEFAULT_INTEGRATIONS, ...parsed.integrations },
+  } as CrewState;
 }
 
 let state: CrewState = typeof localStorage === 'undefined' ? freshState() : load();
@@ -83,4 +88,17 @@ export function clearEverything(): void {
     /* ignore */
   }
   setState(() => ({ ...freshState(), flights: [], tails: [], trips: [], sampleDismissed: true }));
+}
+
+/**
+ * Ask the browser not to evict CREW's storage under pressure. Safari can
+ * otherwise clear a site's data after a stretch without a visit, and this is
+ * the only copy of a pilot's logbook. Best effort: a refusal changes nothing.
+ */
+export function requestPersistentStorage(): void {
+  try {
+    void navigator.storage?.persist?.().catch(() => {});
+  } catch {
+    /* unsupported */
+  }
 }

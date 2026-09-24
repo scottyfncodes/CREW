@@ -35,7 +35,7 @@ also where personal flying history — fleet, airports, cities — lives.
 | --- | --- |
 | **Today** | The contextual home. Reads the trip, the clock and where you are, and shows what matters now — leave-home time, next leg, airborne progress, the layover, a flight ready to log, tomorrow's report. |
 | **Schedule** | Add a flight by number and date — CREW looks up the route, times and aircraft and asks you to confirm. Flights on nearby dates fold into the same trip automatically. Current / upcoming / past trips, each editable. |
-| **Logbook** | What actually happened. A landed flight waits here for a one-tap review before it becomes a permanent record. Also fleet, airports, cities and every flight you've flown. |
+| **Logbook** | What actually happened. A landed flight waits here for a one-tap review before it becomes a permanent record. FAR 117 cumulative flight-time totals (28 and 365 days), projected forward across whatever is on the schedule. Also fleet, airports, cities and every flight you've flown. |
 | **Tools** | Everything else that still earns a place: aircraft and airport reference, eight aviation calculators, pay and expenses, layover guides, trivia games, settings. |
 
 Layover exploration and individual flight/aircraft/airport detail are reached
@@ -63,7 +63,11 @@ src/
                       legs are ready to become logbook entries
       trip.ts        Derivations off a single Trip: duty time, layovers,
                       route lines, leave-home time
+      limits.ts      FAR 117 flight-time awareness: rolling 28/365-day
+                      totals from the logbook plus unlogged scheduled legs,
+                      their projected peak, and the 8/9h per-duty cap
       layover.ts, pay.ts, stats.ts
+    export/        Logbook as CSV
   data/          Curated reference datasets, each entry carrying its sources
   services/
     flightLookup.ts  Flight-number + date -> a fillable flight. Checks the
@@ -71,7 +75,8 @@ src/
                       live ADS-B, then AeroDataBox if a key is set — merges
                       what comes back and labels every field's source
     weather.ts, fetcher.ts
-  store/         One state tree, localStorage-backed, no state library
+  store/         One state tree, localStorage-backed, no state library;
+                  backup.ts writes and validates the backup file
   features/
     schedule/      Add a flight, browse current/upcoming/past trips, edit
                     a trip's legs
@@ -108,6 +113,14 @@ A landed leg not yet in the logbook (`unloggedLegs`, cross-referenced by
 `FlightRecord.sourceLegId`) always earns a "ready to log" card, wherever it
 happened in the trip — not just on whatever day the context currently reads
 as "today."
+
+### Your data
+
+Everything lives in this browser, so Settings → Backup writes the whole state
+tree to a JSON file and restores it again — validated before anything is
+replaced, and never carrying the AeroDataBox key. The logbook also exports as
+CSV. On launch CREW asks the browser for persistent storage so the only copy
+of a logbook is not quietly evicted.
 
 ### Data provenance
 

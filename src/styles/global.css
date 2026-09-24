@@ -549,6 +549,10 @@ input:focus, select:focus, textarea:focus {
   overflow: hidden;
 }
 .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+/* Limits: the solid bar is today, the faint one behind it the scheduled peak. */
+.limit-bar { position: relative; height: 7px; }
+.limit-bar > span { position: absolute; left: 0; top: 0; }
+.limit-bar > .limit-peak { opacity: 0.35; }
 
 .wx-strip { display: flex; gap: 1px; background: var(--line-soft); border-radius: var(--radius-sm); overflow: hidden; }
 .wx-hour {

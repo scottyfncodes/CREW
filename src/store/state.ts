@@ -38,6 +38,8 @@ export interface CrewState {
   games: Record<string, GameStats>;
   /** Set once the pilot has dismissed the sample-data banner. */
   sampleDismissed: boolean;
+  /** When this device last wrote a backup file, if ever. */
+  lastBackupAt: string | null;
 }
 
 export const STATE_VERSION = 1;

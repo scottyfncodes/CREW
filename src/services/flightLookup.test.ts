@@ -49,6 +49,7 @@ function fakeState(overrides: Partial<CrewState> = {}): CrewState {
     placeFeelings: {},
     games: {},
     sampleDismissed: true,
+    lastBackupAt: null,
     ...overrides,
   };
 }

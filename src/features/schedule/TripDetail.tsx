@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Screen, TopBar } from '../../app/AppShell';
 import { useNow } from '../../app/useNow';
 import { buildContext } from '../../core/context/engine';
+import { dutyFlightTime, limitTone } from '../../core/context/limits';
 import { legIsComplete, legIsLogged } from '../../core/context/schedule';
 import {
   dayDutyMinutes,
@@ -183,6 +184,7 @@ function DayBlock({
   const lastAp = findAirport(day.legs[day.legs.length - 1]?.to ?? state.pilot.baseAirport);
   const tz = firstAp?.tz ?? 'UTC';
   const duty = dayDutyMinutes(day);
+  const dutyLimit = dutyFlightTime(day);
   const leave = commuteApplies ? leaveHomeAt(day.reportAt, state.pilot.prefs) : null;
   const wx = useForecast(firstAp, 2);
 
@@ -199,7 +201,16 @@ function DayBlock({
         <Stat k="Report" v={timeIn(day.reportAt, tz)} sub={firstAp?.iata} />
         <Stat k="Release" v={timeIn(day.releaseAt, findAirport(day.legs[day.legs.length - 1]?.to)?.tz ?? tz)} sub={lastAp?.iata} />
         <Stat k="Duty" v={formatDuration(duty.minutes)} sub={duty.basis === 'derived' ? 'block to block' : duty.basis === 'unknown' ? 'not published' : 'published'} />
-        <Stat k="Flight" v={formatHoursDecimal(dayFlightMinutes(day))} sub="hours" />
+        <Stat
+          k="Flight"
+          v={formatHoursDecimal(dayFlightMinutes(day))}
+          sub={dutyLimit.limitMinutes ? `of ${dutyLimit.limitMinutes / 60}h max` : 'hours'}
+          tone={
+            dutyLimit.limitMinutes && dutyLimit.flightMinutes !== null
+              ? toneFor(limitTone(dutyLimit.flightMinutes, dutyLimit.limitMinutes))
+              : undefined
+          }
+        />
       </Stats>
 
       {leave && (
@@ -388,4 +399,9 @@ function TimelineItem({ state, time, title, sub }: { state: TimelineState; time:
       </div>
     </div>
   );
+}
+
+/** Within limits reads as ordinary text; only getting close earns a colour. */
+function toneFor(tone: ReturnType<typeof limitTone>): 'caution' | 'warn' | undefined {
+  return tone === 'go' ? undefined : tone;
 }
