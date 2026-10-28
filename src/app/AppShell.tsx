@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useSaveError } from '../store/store';
 
 /**
  * Four tabs: Today / Schedule / Logbook / Tools. Layover and flight detail
@@ -61,5 +62,15 @@ export function TopBar({ title, back, action }: { title: string; back?: boolean;
 }
 
 export function Screen({ children }: { children: ReactNode }) {
-  return <main className="screen">{children}</main>;
+  const saveError = useSaveError();
+  return (
+    <main className="screen">
+      {saveError && (
+        <p className="save-error" role="alert">
+          {saveError} <Link to="/settings">Settings</Link>
+        </p>
+      )}
+      {children}
+    </main>
+  );
 }

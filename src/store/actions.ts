@@ -13,7 +13,7 @@ import type {
 import { findAirport } from '../data/airportIndex';
 import { dateKeyIn } from '../core/time/time';
 import { appendFlightToTrips, type NewLegInput } from '../core/context/schedule';
-import { hydrate, setState } from './store';
+import { getSaveError, getState, hydrate, readStoredText, setState } from './store';
 import type { CrewState, GameStats, PlaceFeeling } from './state';
 import { buildSampleFlights, buildSampleTails, buildSampleTrip } from './seed';
 
@@ -295,12 +295,21 @@ export function restoreSampleData(): void {
   }));
 }
 
+export type RestoreResult = { ok: true } | { ok: false; error: string };
+
+const RESTORE_FAILED = 'The backup could not be saved on this device, so nothing was changed.';
+
 /**
  * Replace everything with a backup. The AeroDataBox key on this device is
- * kept — backups never carry it — and a slice the backup lacks comes back
+ * kept (backups never carry it), and a slice the backup lacks comes back
  * empty rather than as sample data.
+ *
+ * "Restored" is only true once the device holds it, so this reads the
+ * stored copy back and compares it with what was meant to be written. On
+ * any mismatch the previous state is put back and the caller is told.
  */
-export function restoreBackup(backup: Partial<Omit<CrewState, 'integrations'>>): void {
+export function restoreBackup(backup: Partial<Omit<CrewState, 'integrations'>>): RestoreResult {
+  const before = getState();
   setState((s) =>
     hydrate({
       trips: [],
@@ -314,6 +323,19 @@ export function restoreBackup(backup: Partial<Omit<CrewState, 'integrations'>>):
       integrations: s.integrations,
     }),
   );
+  const stored = readStoredText();
+  let matches = !getSaveError() && stored !== null && stored === JSON.stringify(getState());
+  if (matches && stored) {
+    const back = JSON.parse(stored) as CrewState;
+    matches = (['trips', 'flights', 'tails', 'expenses'] as const).every(
+      (k) => back[k].length === (backup[k]?.length ?? 0),
+    );
+  }
+  if (!matches) {
+    setState(() => before);
+    return { ok: false, error: RESTORE_FAILED };
+  }
+  return { ok: true };
 }
 
 export function markBackedUp(at: Date): void {

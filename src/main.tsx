@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppRouter } from './app/router';
-import { requestPersistentStorage } from './store/store';
+import { readStoredText, requestPersistentStorage } from './store/store';
 import './styles/global.css';
 
 const root = document.getElementById('root');
@@ -13,7 +13,9 @@ createRoot(root).render(
   </StrictMode>,
 );
 
-requestPersistentStorage();
+// A pilot who has saved before gets the request on launch; a first-time
+// visitor gets it after their first successful save (see store.ts).
+if (readStoredText()) requestPersistentStorage();
 
 // Register the offline service worker. Failing to register is not fatal —
 // the app simply works online only.

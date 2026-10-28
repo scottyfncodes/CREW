@@ -54,11 +54,55 @@ export function hydrate(parsed: Partial<CrewState>): CrewState {
 let state: CrewState = typeof localStorage === 'undefined' ? freshState() : load();
 const listeners = new Set<() => void>();
 
+/**
+ * Why the last write to this device failed, or null when it succeeded. The
+ * session keeps working in memory either way, but the pilot has to be told:
+ * an entry that only lives in memory is gone the next time iOS reclaims the
+ * tab.
+ */
+let saveError: string | null = null;
+let askedForPersistence = false;
+
+function describeSaveError(err: unknown): string {
+  const name = (err as { name?: unknown } | null)?.name;
+  if (name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+    return 'This device is out of storage space for CREW, so your last change was not saved. Save a backup file now.';
+  }
+  return 'CREW could not save to this device, so your last change was not saved. Save a backup file now.';
+}
+
 function persist(): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const text = JSON.stringify(state);
+    localStorage.setItem(STORAGE_KEY, text);
+    // Reading it back is one string compare, and it is the only way to know
+    // the write really landed.
+    if (localStorage.getItem(STORAGE_KEY) !== text) throw new Error('read-back mismatch');
+    saveError = null;
+    if (!askedForPersistence) {
+      askedForPersistence = true;
+      requestPersistentStorage();
+    }
+  } catch (err) {
+    saveError = describeSaveError(err);
+  }
+}
+
+/** The last save failure, for the banner every screen shows. */
+export function getSaveError(): string | null {
+  return saveError;
+}
+
+export function useSaveError(): string | null {
+  return useSyncExternalStore(subscribe, getSaveError, getSaveError);
+}
+
+/** What is actually stored on this device right now, or null if nothing readable is. */
+export function readStoredText(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
   } catch {
-    // Out of quota or private mode — the session still works in memory.
+    return null;
   }
 }
 
@@ -100,5 +144,15 @@ export function requestPersistentStorage(): void {
     void navigator.storage?.persist?.().catch(() => {});
   } catch {
     /* unsupported */
+  }
+}
+
+/** True when the browser has agreed to keep CREW's data, null when it cannot say. */
+export async function isStoragePersisted(): Promise<boolean | null> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.storage?.persisted) return null;
+    return await navigator.storage.persisted();
+  } catch {
+    return null;
   }
 }

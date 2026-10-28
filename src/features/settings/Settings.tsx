@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Screen, TopBar } from '../../app/AppShell';
 import type { CommuteMode } from '../../core/types';
 import { AIRCRAFT } from '../../data/aircraft';
@@ -6,7 +6,6 @@ import { findAirport, searchAirports } from '../../data/airportIndex';
 import { findAirline } from '../../data/airlines';
 import { clearCache } from '../../services/fetcher';
 import { logbookCsv } from '../../core/export/logbookCsv';
-import { relative } from '../../core/time/time';
 import { useNow } from '../../app/useNow';
 import { backupFilename, buildBackup, parseBackup } from '../../store/backup';
 import {
@@ -20,8 +19,8 @@ import {
   updatePilot,
   updatePrefs,
 } from '../../store/actions';
-import { clearEverything, getState, useCrew } from '../../store/store';
-import { downloadText } from '../../ui/download';
+import { clearEverything, getState, isStoragePersisted, useCrew } from '../../store/store';
+import { downloadText, saveFile } from '../../ui/download';
 import { Advisory, Field, Panel, Toggle } from '../../ui/primitives';
 
 const COMMUTE_MODES: { id: CommuteMode; label: string }[] = [
@@ -441,18 +440,42 @@ function AirportPicker({
   );
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** After this long without a backup, and with real data on the device, the panel nudges. */
+const BACKUP_NUDGE_DAYS = 30;
+
 function BackupPanel() {
   const state = useCrew();
   const now = useNow();
   const fileInput = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ tone: 'go' | 'warn'; text: string } | null>(null);
+  const [persisted, setPersisted] = useState<boolean | null>(null);
   const realFlights = state.flights.filter((f) => !f.sample).length;
+  const hasData = realFlights > 0 || state.expenses.length > 0;
 
-  const exportBackup = () => {
+  useEffect(() => {
+    let live = true;
+    void isStoragePersisted().then((p) => live && setPersisted(p));
+    return () => {
+      live = false;
+    };
+  }, [state.lastBackupAt]);
+
+  const exportBackup = async () => {
     const at = new Date();
-    downloadText(backupFilename(at), JSON.stringify(buildBackup(getState(), at), null, 2), 'application/json');
+    let result;
+    try {
+      result = await saveFile(backupFilename(at), JSON.stringify(buildBackup(getState(), at), null, 2), 'application/json');
+    } catch {
+      setMessage({ tone: 'warn', text: 'The backup file could not be created. Nothing was saved.' });
+      return;
+    }
+    if (result === 'cancelled') {
+      setMessage({ tone: 'warn', text: 'Cancelled. No backup file was saved.' });
+      return;
+    }
     markBackedUp(at);
-    setMessage({ tone: 'go', text: 'Backup saved. Keep it somewhere that is not this phone.' });
+    setMessage({ tone: 'go', text: 'Backup file created. Keep it somewhere that is not this phone.' });
   };
 
   const exportCsv = () => {
@@ -461,39 +484,64 @@ function BackupPanel() {
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
-    const parsed = parseBackup(await file.text());
-    if (fileInput.current) fileInput.current.value = '';
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setMessage({ tone: 'warn', text: 'That file could not be read.' });
+      return;
+    } finally {
+      if (fileInput.current) fileInput.current.value = '';
+    }
+    const parsed = parseBackup(text);
     if (!parsed.ok) {
-      setMessage({ tone: 'warn', text: parsed.error });
+      setMessage({ tone: 'warn', text: `${parsed.error} Nothing was changed.` });
       return;
     }
     const { summary } = parsed;
+    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
     const when = summary.exportedAt ? ` from ${summary.exportedAt.slice(0, 10)}` : '';
     const ok = confirm(
-      `Restore the backup${when}? It has ${summary.trips} trip${summary.trips === 1 ? '' : 's'} and ` +
-        `${summary.flights} logbook entr${summary.flights === 1 ? 'y' : 'ies'}, and replaces everything on this device.`,
+      `Restore the backup${when}?\n\nIt has ${plural(summary.trips, 'trip', 'trips')}, ` +
+        `${plural(summary.flights, 'logbook entry', 'logbook entries')}, ${plural(summary.tails, 'tail', 'tails')} and ` +
+        `${plural(summary.expenses, 'expense', 'expenses')}.\n\nIt replaces everything on this device: ` +
+        `${plural(state.trips.length, 'trip', 'trips')}, ${plural(state.flights.length, 'logbook entry', 'logbook entries')}, ` +
+        `${plural(state.tails.length, 'tail', 'tails')} and ${plural(state.expenses.length, 'expense', 'expenses')}.`,
     );
     if (!ok) return;
-    restoreBackup(parsed.state);
-    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    const restored = restoreBackup(parsed.state);
+    if (!restored.ok) {
+      setMessage({ tone: 'warn', text: restored.error });
+      return;
+    }
     setMessage({
       tone: 'go',
       text: `Restored ${plural(summary.flights, 'logbook entry', 'logbook entries')} and ${plural(summary.trips, 'trip', 'trips')}.`,
     });
   };
 
+  const daysSince = state.lastBackupAt ? Math.floor((now.getTime() - Date.parse(state.lastBackupAt)) / DAY_MS) : null;
+  const stale = hasData && (daysSince === null || daysSince >= BACKUP_NUDGE_DAYS);
+
   return (
     <Panel title="Backup">
       <p className="small dim" style={{ margin: '0 0 12px' }}>
-        {state.lastBackupAt ? (
-          <>Last backup {relative(state.lastBackupAt, now) === 'now' ? 'just now' : relative(state.lastBackupAt, now)}.</>
+        {daysSince === null ? (
+          <span className={stale ? 'caution-text' : undefined}>
+            Never backed up
+            {realFlights > 0
+              ? `. ${realFlights} logbook entr${realFlights === 1 ? 'y exists' : 'ies exist'} only on this device`
+              : ''}
+            .
+          </span>
         ) : (
-          <span className={realFlights > 0 ? 'caution-text' : undefined}>
-            Never backed up{realFlights > 0 ? ` — ${realFlights} logbook entr${realFlights === 1 ? 'y' : 'ies'} exist only on this device` : ''}.
+          <span className={stale ? 'caution-text' : undefined}>
+            Last backup {daysSince < 1 ? 'today' : daysSince === 1 ? 'yesterday' : `${daysSince} days ago`}
+            {stale ? '. Time to save a fresh one' : ''}.
           </span>
         )}
       </p>
-      <button type="button" className="btn primary" style={{ marginBottom: 8 }} onClick={exportBackup}>
+      <button type="button" className="btn primary" style={{ marginBottom: 8 }} onClick={() => void exportBackup()}>
         Save a backup file
       </button>
       <button type="button" className="btn ghost" style={{ marginBottom: 8 }} onClick={() => fileInput.current?.click()}>
@@ -510,7 +558,7 @@ function BackupPanel() {
         Export logbook as CSV
       </button>
       {message && (
-        <p className={`small ${message.tone === 'go' ? 'go' : 'warn-text'}`} style={{ margin: '10px 0 0' }}>
+        <p className={`small ${message.tone === 'go' ? 'go' : 'warn-text'}`} role="status" style={{ margin: '10px 0 0' }}>
           {message.text}
         </p>
       )}
@@ -518,6 +566,13 @@ function BackupPanel() {
         A backup is every trip, logbook entry, expense and preference in one file. Your AeroDataBox key is never
         included. The CSV opens in any spreadsheet or logbook app; sample entries are left out.
       </p>
+      {persisted !== null && (
+        <p className="tiny faint" style={{ marginTop: 6 }}>
+          {persisted
+            ? 'This device will keep your data.'
+            : 'Safari may clear this data after 7 days without a visit. Add CREW to your Home Screen and keep a backup.'}
+        </p>
+      )}
     </Panel>
   );
 }
