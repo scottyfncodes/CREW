@@ -462,6 +462,16 @@ input:focus, select:focus, textarea:focus {
 }
 .advisory strong { color: var(--caution); font-weight: 650; }
 
+/* A failed save is shown on every screen until a later save succeeds. */
+.save-error {
+  border-left: 2px solid var(--warn);
+  padding: 9px 0 9px 11px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+.save-error a { color: var(--warn); }
+
 /* -------------------------------------------------------------- timeline */
 
 .timeline { position: relative; padding-left: 22px; }
